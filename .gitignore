@@ -1,0 +1,7 @@
+.venv/
+*.bgraph
+*.html
+*.json
+*.png
+*.pkl
+*.csv
