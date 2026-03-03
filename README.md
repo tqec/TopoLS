@@ -84,7 +84,7 @@ We recommend installing TopoLS inside a virtual environment.
 
 ```bash
 # Clone the repository
-git clone https://github.com/tqec/topologiq.git
+git clone https://github.com/tqec/TopoLS.git
 cd TopoLS/src
 
 # Create virtual environment
