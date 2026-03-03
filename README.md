@@ -53,10 +53,10 @@ Resources for TopoLS:
 👉 [TopoLS: Lattice Surgery Compilation via Topological Program Transformations](https://arxiv.org/abs/2601.23109).
 
 - 🎥 Video:  
-👉 [TopoLS Presentation at TQEC](https://drive.google.com/file/d/12-Uby-_GgCEUzkFRkGJn-41uRcGZoh5H/view)
+👉 [TopoLS Presentation at TQEC](https://drive.google.com/file/d/12-Uby-_GgCEUzkFRkGJn-41uRcGZoh5H/view).
 
-- 📊 Slides:  
-👉 Will be available soon.
+- 📊 Slide:  
+👉 [TopoLS Slide](https://drive.google.com/file/d/1vOckwK4KiAtYmOgA3LbHbEPJ3BVxh2Ri/view?usp=sharing).
 
 ## 🚀 Examples
 
