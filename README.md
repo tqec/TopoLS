@@ -64,7 +64,7 @@ We demonstrate the compilation results of TopoLS on two representative cases:
 a 16-qubit GHZ state and a 500-qubit random circuit.
 
 <p align="center">
-  <img src="assets/example.png" width="65%"/>
+  <img src="assets/example.png" width="75%"/>
 </p>
 
 A detailed usage tutorial is available in `src/tutorial.ipynb`.  
@@ -75,6 +75,6 @@ To reproduce the experimental results reported in the paper, run `src/exp.py`.
 TopoLS compiles circuits into a lattice-surgery pipe diagram, which can be directly consumed by TQEC for simulation and resource evaluation.
 
 <p align="center">
-  <img src="assets/simulation.png" width="60%"/>
+  <img src="assets/simulation.png" width="80%"/>
 </p>
 
