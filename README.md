@@ -9,7 +9,7 @@ TopoLS leverages the topological nature of lattice surgery to convert quantum ci
 TopoLS performs compilation in three stages:
 
 <p align="center">
-  <img src="assets/overview.png" width="750"/>
+  <img src="assets/overview.png" width="65%"/>
 </p>
 
 ---
@@ -47,11 +47,21 @@ topological optimization benefits.
 
 ---
 
-All the details can be found in our paper  
+Resources for TopoLS:
+
+- 📄 **Paper**  
 👉 [TopoLS: Lattice Surgery Compilation via Topological Program Transformations](https://arxiv.org/abs/2601.23109).
-🎥 Video:  
+
+- 🎥 Video:  
 👉 [TopoLS Presentation at TQEC](https://drive.google.com/file/d/12-Uby-_GgCEUzkFRkGJn-41uRcGZoh5H/view)
-📊 Slides:  
+
+- 📊 Slides:  
 👉 Will be available soon.
 
+## 🚀 Examples
 
+We demonstrate the compilation results of TopoLS on two representative cases: 
+a 16-qubit GHZ state and a 500-qubit random circuit.
+
+A detailed usage tutorial is available in `src/tutorial.ipynb`.  
+To reproduce the experimental results reported in the paper, run `src/exp.py`.
