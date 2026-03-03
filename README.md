@@ -64,7 +64,7 @@ We demonstrate the compilation results of TopoLS on two representative cases:
 a 16-qubit GHZ state and a 500-qubit random circuit.
 
 <p align="center">
-  <img src="assets/example.png" width="75%"/>
+  <img src="assets/example.png" width="50%"/>
 </p>
 
 A detailed usage tutorial is available in `src/tutorial.ipynb`.  
