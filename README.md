@@ -63,5 +63,11 @@ Resources for TopoLS:
 We demonstrate the compilation results of TopoLS on two representative cases: 
 a 16-qubit GHZ state and a 500-qubit random circuit.
 
+<p align="center">
+  <img src="assets/example.png" width="75%"/>
+</p>
+
 A detailed usage tutorial is available in `src/tutorial.ipynb`.  
 To reproduce the experimental results reported in the paper, run `src/exp.py`.
+
+
