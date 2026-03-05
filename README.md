@@ -84,11 +84,11 @@ We recommend installing TopoLS inside a virtual environment.
 
 ```bash
 # Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Clone the repository
-python -m pip install git+https://github.com/tqec/TopoLS.git
+python3 -m pip install git+https://github.com/tqec/TopoLS.git
 
 ```
 
