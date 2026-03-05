@@ -97,9 +97,17 @@ python3 -m pip install git+https://github.com/tqec/TopoLS.git
 If you use **TopoLS** in your research, please cite this work:
 
 ```bibtex
-@article{zhou2026topols,
-  title={TopoLS: Lattice Surgery Compilation via Topological Program Transformations},
-  author={Zhou, Junyu and Liu, Yuhao and Decker, Ethan and Kalloor, Justin and Weiden, Mathias and Chen, Kean and Iancu, Costin and Li, Gushu},
-  journal={arXiv preprint arXiv:2601.23109},
-  year={2026}
+@misc{zhou2026topols,
+  author        = {{Zhou}, Junyu and {Liu}, Yuhao and {Decker}, Ethan and {Kalloor}, Justin and {Weiden}, Mathias and {Chen}, Kean and {Iancu}, Costin and {Li}, Gushu},
+  title         = {{TopoLS: Lattice Surgery Compilation via Topological Program Transformations}},
+  journal       = {arXiv e-prints},
+  keywords      = {Quantum Physics},
+  year          = 2026,
+  month         = jan,
+  eid           = {arXiv:2601.23109},
+  pages         = {arXiv:2601.23109},
+  doi           = {10.48550/arXiv.2601.23109},
+  archiveprefix = {arXiv},
+  eprint        = {2601.23109},
+  primaryclass  = {quant-ph},
 }
