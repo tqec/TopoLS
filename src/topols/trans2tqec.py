@@ -2,7 +2,7 @@ import pickle
 import pyzx as zx
 from itertools import groupby
 from collections import Counter
-from TopoLS.layer_mcts import *
+from topols.layer_mcts import *
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from tqdm import tqdm

@@ -9,7 +9,7 @@ from tqdm import tqdm
 from itertools import groupby
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from TopoLS.layer_partition import *
+from topols.layer_partition import *
 
 
 # ---------------------------------------------------------------------------

@@ -83,16 +83,26 @@ TopoLS compiles circuits into a lattice-surgery pipe diagram, which can be direc
 We recommend installing TopoLS inside a virtual environment.
 
 ```bash
-# Clone the repository
-git clone https://github.com/tqec/TopoLS.git
-cd TopoLS/src
-
 # Create virtual environment
 python -m venv .venv
 source .venv/bin/activate  
 
+# Clone the repository
+python -m pip install git+https://github.com/tqec/TopoLS.git
+
 # Install dependencies
 pip install -r requirements.txt
 
-# Install TopoLS in editable mode
-pip install -e .
+```
+
+## 📖 Citation
+
+If you use **TopoLS** in your research, please cite this work:
+
+```bibtex
+@article{zhou2026topols,
+  title={TopoLS: Lattice Surgery Compilation via Topological Program Transformations},
+  author={Zhou, Junyu and Liu, Yuhao and Decker, Ethan and Kalloor, Justin and Weiden, Mathias and Chen, Kean and Iancu, Costin and Li, Gushu},
+  journal={arXiv preprint arXiv:2601.23109},
+  year={2026}
+}
