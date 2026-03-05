@@ -82,7 +82,7 @@ TopoLS compiles circuits into a lattice-surgery pipe diagram, which can be direc
 
 Running 16-qubit GHZ state compilation:
 ```bash
-#  Create virtual environment
+# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
