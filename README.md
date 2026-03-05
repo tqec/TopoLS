@@ -94,7 +94,8 @@ cd TopoLS
 python3 -m pip install .
 
 # Try out one script
-python3 tutorial/prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
+cd tutorial
+python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
 
 ```
 
