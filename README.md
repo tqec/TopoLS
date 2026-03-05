@@ -67,8 +67,8 @@ a 16-qubit GHZ state and a 500-qubit random circuit.
   <img src="assets/example.png" width="75%"/>
 </p>
 
-A detailed usage tutorial is available in `src/tutorial.ipynb`.  
-To reproduce the experimental results reported in the paper, run `src/exp.py`.
+A detailed usage tutorial is available in `tutorial/tutorial.ipynb`.  
+To reproduce the main experimental results reported in the paper, run `tutorial/exp.py`.
 
 ## 🔗 Operates with TQEC
 
@@ -89,9 +89,6 @@ source .venv/bin/activate
 
 # Clone the repository
 python -m pip install git+https://github.com/tqec/TopoLS.git
-
-# Install dependencies
-pip install -r requirements.txt
 
 ```
 
