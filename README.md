@@ -67,8 +67,8 @@ a 16-qubit GHZ state and a 500-qubit random circuit.
   <img src="docs/media/example.png" width="75%"/>
 </p>
 
-A detailed usage tutorial is available in `tutorial/tutorial.ipynb`.  
-To reproduce the main experimental results reported in the paper, run `tutorial/exp.py`.
+A detailed usage tutorial is available in `docs/tutorial.ipynb`.  
+To reproduce the overall experimental results reported in the paper, run `docs/exp.py`.
 
 ## 🔗 Operates with TQEC
 
