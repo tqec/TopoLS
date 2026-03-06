@@ -91,9 +91,6 @@ cd TopoLS
 # Sync environment
 uv sync 
 
-# Opt for an editable installation
-uv pip install -e .
-
 # Try out one script
 cd docs
 uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
@@ -112,8 +109,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install the package
-pip install -r requirements.txt
-pip install .
+python -m pip install -e .
 
 # Try out one script
 cd docs
