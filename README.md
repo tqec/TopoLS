@@ -9,7 +9,7 @@ TopoLS leverages the topological nature of lattice surgery to convert quantum ci
 TopoLS performs compilation in three stages:
 
 <p align="center">
-  <img src="assets/overview.png" width="65%"/>
+  <img src="docs/media/overview.png" width="65%"/>
 </p>
 
 ---
@@ -64,7 +64,7 @@ We demonstrate the compilation results of TopoLS on two representative cases:
 a 16-qubit GHZ state and a 500-qubit random circuit.
 
 <p align="center">
-  <img src="assets/example.png" width="75%"/>
+  <img src="docs/media/example.png" width="75%"/>
 </p>
 
 A detailed usage tutorial is available in `tutorial/tutorial.ipynb`.  
@@ -75,7 +75,7 @@ To reproduce the main experimental results reported in the paper, run `tutorial/
 TopoLS compiles circuits into a lattice-surgery pipe diagram, which can be directly consumed by TQEC for simulation and resource evaluation.
 
 <p align="center">
-  <img src="assets/simulation.png" width="80%"/>
+  <img src="docs/media/simulation.png" width="80%"/>
 </p>
 
 ## :zap: Quick Start
