@@ -1,4 +1,3 @@
-.venv/
 result
 *.bgraph
 *.html
@@ -7,3 +6,19 @@ result
 *.pkl
 *.csv
 !docs/media/*.png
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+env/
+venv/
+
+build/
+dist/
+*.egg-info/
+
+.pytest_cache/
+.mypy_cache/
