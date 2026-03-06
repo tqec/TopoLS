@@ -17,6 +17,7 @@ dependencies = [
     "tqdm>=4.67,<4.68",
 ]
 
+[dependency-groups]
 integration = [
     "tqec>=0.1.0",
 ]
