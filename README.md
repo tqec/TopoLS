@@ -80,18 +80,42 @@ TopoLS compiles circuits into a lattice-surgery pipe diagram, which can be direc
 
 ## :zap: Quick Start
 
+### Using UV
+
 Running 16-qubit GHZ state compilation:
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
 # Clone the repository
 git clone https://github.com/tqec/TopoLS.git
 cd TopoLS
 
+# Sync environment
+uv sync  # TopoLS
+# or
+uv sync --group integration  # TopoLS w. TQEC/tqec
+
+# Opt for an editable installation
+uv pip install -e .
+
+# Try out one script
+cd tutorial
+uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
+
+```
+
+### Using pip
+Running 16-qubit GHZ state compilation:
+```bash
+# Clone the repository
+git clone https://github.com/tqec/TopoLS.git
+cd TopoLS
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
 # Install the package
-python3 -m pip install .
+pip install -r requirements.txt
+pip install -e .
 
 # Try out one script
 cd tutorial
