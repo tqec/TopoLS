@@ -6,4 +6,4 @@ result
 *.png
 *.pkl
 *.csv
-!assets/*.png
+!docs/media/*.png
