@@ -89,20 +89,18 @@ git clone https://github.com/tqec/TopoLS.git
 cd TopoLS
 
 # Sync environment
-uv sync  # TopoLS
-# or
-uv sync --group integration  # TopoLS w. TQEC/tqec
+uv sync 
 
 # Opt for an editable installation
 uv pip install -e .
 
 # Try out one script
-cd tutorial
+cd docs
 uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
 
 ```
 
-### Using pip
+### Using PIP
 Running 16-qubit GHZ state compilation:
 ```bash
 # Clone the repository
@@ -115,10 +113,10 @@ source .venv/bin/activate
 
 # Install the package
 pip install -r requirements.txt
-pip install -e .
+pip install .
 
 # Try out one script
-cd tutorial
+cd docs
 python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
 
 ```

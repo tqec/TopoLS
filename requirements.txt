@@ -4,5 +4,5 @@ pandas<3.0,>=2.3
 pyvista==0.47.1
 pyzx==0.9.0
 tqdm<4.68,>=4.67
-tqec @ git+https://github.com/tqec/tqec.git@c9a2c1fb75ad26813aa07a24155fac6f42767ff9
+tqec>=0.1.0
 sinter==1.15.0
