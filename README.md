@@ -131,6 +131,10 @@ python3 -m pip install git+https://github.com/tqec/TopoLS.git
 
 ```
 
+## 🧩 Miscellaneous Notes
+	•	Magic state handling. All magic states are treated as T gates during compilation, since they share the same execution pattern in lattice surgery. This simplification does not affect the resulting space–time structure; therefore, users should translate all magic gates into T gates before feeding them to TopoLS.
+	•	Block reference issue. If you encounter a block reference issue during execution, it can be resolved by enabling the b0 flag: -b0 1. This serves as a temporary workaround and will be improved in future updates.
+
 ## 📖 Citation
 
 If you use **TopoLS** in your research, please cite this work:
