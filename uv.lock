@@ -2104,7 +2104,7 @@ wheels = [
 
 [[package]]
 name = "tqec"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
@@ -2128,9 +2128,9 @@ dependencies = [
     { name = "tqecd" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/d6/d33c667f9778b2742357879dd3a994451405d64e1fbd2116b1ebe2ac543e/tqec-0.1.0.tar.gz", hash = "sha256:437a2269065d868d1e4401a2346034be625fdf907924710c3502eda635793b66", size = 255528, upload-time = "2025-11-12T12:29:36.437Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e7/d2/70a9eb78cb74298bf1a0010ec4e07fe9fcd9dfe5d78d991159dbd1afd445/tqec-0.2.0.tar.gz", hash = "sha256:a72af12e99c745b61c1e92e1afaf13d22adfc488a43f30f485702fbc1d220f93", size = 264102, upload-time = "2026-03-25T16:02:42.595Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/36/1b627b3caed04a0d8e9c8add81b5ee49041c293f677d6a5edb260645c017/tqec-0.1.0-py3-none-any.whl", hash = "sha256:3d16f6754229cb697db82b675ccfe09fbc4aa9a5084f739b52fb2ad42f28c1eb", size = 344639, upload-time = "2025-11-12T12:29:35.307Z" },
+    { url = "https://files.pythonhosted.org/packages/43/a3/253be0d8a851168102f35e36f213c790a01a220e248a4fa2d04cd1fa8d57/tqec-0.2.0-py3-none-any.whl", hash = "sha256:f559d1172222f1669a94537d2acea800f7d8b772b7f35b7e5b37ab51135716ca", size = 353364, upload-time = "2026-03-25T16:02:44.12Z" },
 ]
 
 [[package]]
