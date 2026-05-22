@@ -14,7 +14,7 @@ dependencies = [
     "pandas>=2.3,<3.0",
     "pyvista==0.48.1",
     "pyzx==0.10.2",
-    "sinter==1.15.0",
+    "sinter==1.16.0",
     "tqdm>=4.67,<4.68",
     "tqec>=0.1.0",
 ]

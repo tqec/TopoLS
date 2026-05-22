@@ -1672,7 +1672,7 @@ wheels = [
 
 [[package]]
 name = "sinter"
-version = "1.15.0"
+version = "1.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
@@ -1681,10 +1681,7 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "stim" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/ce/ba7f22ac1535b95b16f046678d133b2af65288effb6e4e99c28b576ef54d/sinter-1.15.0.tar.gz", hash = "sha256:47c7e4412d73bcbd5cabca49b6d9bfc0b33eb18d333f525076512e0efa873d45", size = 176702, upload-time = "2025-05-07T06:19:38.872Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/45/be8193757e44880348dc9561bedadce0b815b408c959ceaf56c1863fd65d/sinter-1.15.0-py3-none-any.whl", hash = "sha256:6bec05cc643e301192c2acaca9ede464576572635c5e25a592e48294b7e53bed", size = 196891, upload-time = "2025-05-07T06:19:37.398Z" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/6b/b546cc9240fb1b64417c8ca00038ce1927ffd6e8a0d4e46ad237242dbcd8/sinter-1.16.0.tar.gz", hash = "sha256:fd0f7bff97cb951345893f53b347d76f99b53977590054abc3d057150f82037b", size = 177330, upload-time = "2026-05-22T05:41:49.762Z" }
 
 [[package]]
 name = "six"
@@ -2010,7 +2007,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3,<3.0" },
     { name = "pyvista", specifier = "==0.48.1" },
     { name = "pyzx", specifier = "==0.10.2" },
-    { name = "sinter", specifier = "==1.15.0" },
+    { name = "sinter", specifier = "==1.16.0" },
     { name = "tqdm", specifier = ">=4.67,<4.68" },
     { name = "tqec", specifier = ">=0.1.0" },
 ]
