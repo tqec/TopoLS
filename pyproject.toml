@@ -15,6 +15,6 @@ dependencies = [
     "pyvista==0.48.1",
     "pyzx==0.10.2",
     "sinter==1.15.0",
-    "tqdm>=4.67,<4.68",
+    "tqdm>=4.68.2,<4.69",
     "tqec>=0.1.0",
 ]
