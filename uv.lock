@@ -1447,7 +1447,7 @@ wheels = [
 
 [[package]]
 name = "pyzx"
-version = "0.10.3"
+version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ipywidgets" },
@@ -1457,9 +1457,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4a/40/fce9ba05b9a874e486de4a2d9092898b219f75368ce758dd5a9a26428535/pyzx-0.10.3.tar.gz", hash = "sha256:8c9e2c2d7baddefaed5962e8dc6bc638d3ff678d0d7bb8ee6f4bfd0a79e912be", size = 530196, upload-time = "2026-06-01T14:55:06.857Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/3f/429e64a49157a18164c9c4e514f7318446707af6e04c6feaf0f097952781/pyzx-0.10.4.tar.gz", hash = "sha256:8cf93b58ef4ead3108eb35cdce6924d7a19a2527a21e43da89d0ae7a93b4e877", size = 535246, upload-time = "2026-07-01T11:57:47.563Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/b2/c89625790e919cb8bfa17d8131870c5ceccdbb44b517b8d7eec0fbf54304/pyzx-0.10.3-py3-none-any.whl", hash = "sha256:70915d35350aaa48161cf185979f48d225c10221570d40569214873d7ccd873c", size = 566325, upload-time = "2026-06-01T14:55:05.221Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/f3/82c6ca30cc0aae2b9ed93c434f0d376cd40a062adcfe7b6f5d6523f95f93/pyzx-0.10.4-py3-none-any.whl", hash = "sha256:76a26a96614850ea19866eae097930949d9940a533ca4c5729ffaf9403634d27", size = 569953, upload-time = "2026-07-01T11:57:46.057Z" },
 ]
 
 [[package]]
@@ -2005,7 +2005,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0,<2.5" },
     { name = "pandas", specifier = ">=2.3,<3.0" },
     { name = "pyvista", specifier = "==0.48.1" },
-    { name = "pyzx", specifier = "==0.10.3" },
+    { name = "pyzx", specifier = "==0.10.4" },
     { name = "sinter", specifier = "==1.15.0" },
     { name = "tqdm", specifier = ">=4.68.2,<4.69" },
     { name = "tqec", specifier = ">=0.1.0" },
