@@ -1,4 +1,5 @@
-from topols.trans2tqec import *
+from topols.export.bgraph import *
+from topols.export.visualize import *
 import argparse
 import os
 

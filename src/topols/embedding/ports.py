@@ -1,0 +1,145 @@
+import math
+
+from topols.routing.color_algebra import ORI_MAP, edge_tracer
+
+# ---------------------------------------------------------------------------
+# Other Function
+# ---------------------------------------------------------------------------
+
+def calculate_space_time(pos, paths, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
+    all_points = [coord for coord in pos.values()]
+    all_points += [pt for path in paths for pt in path]
+    _, _, zs = zip(*all_points)
+    z_min, z_max = min(zs), max(zs)
+    x_length = x_max_floor - x_min_floor + 1
+    y_length = y_max_floor - y_min_floor + 1
+    z_length = z_max - z_min
+    volume = x_length * y_length * z_length
+    return x_length, y_length, z_length, volume
+
+
+# Create the initial input-port locations for the embedding
+def auto_ports(num_qubits, z_level=0, edge_dist=2, length=2):
+
+    if length is None:
+        length = math.ceil(num_qubits ** 0.5)
+    width = math.ceil(num_qubits / length)
+
+    input_port_loc = {}
+    input_port_ori = {}
+    input_port_type = {}
+
+    idx = 0
+    for j in range(width):
+        i_s = range(length) if j % 2 == 0 else reversed(range(length))
+        for i in i_s:
+            if idx >= num_qubits:
+                break
+            input_port_loc[idx] = (i * edge_dist, j * edge_dist, z_level)
+            input_port_ori[idx] = 'i'
+            input_port_type[idx] = 0
+            idx += 1
+        if idx >= num_qubits:
+            break
+
+    return input_port_loc, input_port_ori, input_port_type
+
+
+# Re-wire all active output ports to the ceiling layer
+def ceiling(best_state, ceiling_track, node_type, final=False):
+
+    # Consolidated from a local redefinition of the same table now in
+    # topols.routing.color_algebra.ORI_MAP -- see docs/REFACTOR_LOG.md.
+    ori_map = ORI_MAP
+
+    occ = set(best_state.occupied)
+
+    for key in list(best_state.embed_node_pos.keys()):
+        if key in node_type:
+            best_state.embed_node_pos[f"{key}_old"] = best_state.embed_node_pos[key]
+            del best_state.embed_node_pos[key]
+
+    for key in list(best_state.embed_node_ori.keys()):
+        if key in node_type:
+            best_state.embed_node_ori[f"{key}_old"] = best_state.embed_node_ori[key]
+            del best_state.embed_node_ori[key]
+
+    for key in list(best_state.embed_node_type.keys()):
+        if key in node_type:
+            best_state.embed_node_type[f"{key}_old"] = best_state.embed_node_type[key]
+            del best_state.embed_node_type[key]
+
+    for key in list(best_state.t_track.keys()):
+        if key in node_type:
+            best_state.t_track[f"{key}_old"] = best_state.t_track[key]
+            del best_state.t_track[key]
+
+
+    for key, dic in ceiling_track.items():
+        path = dic["path"]
+        best_state.embed_node_pos[key] = path[-1]
+
+    for key, dic in ceiling_track.items():
+        if "ori" in dic:
+            ori = dic["ori"]
+            best_state.embed_node_ori[key] = ori
+
+    for key, dic in ceiling_track.items():
+        type = dic["type"]
+        if type > 1 and type not in (4, 5):
+            if final:
+                type = 0
+                path = dic["path"]
+                start_node, cur_path, h_count = best_state.idle_h_track[key]
+                best_state.idle_h_track[key] = [
+                            start_node,
+                            tuple(list(path)[::-1] + list(cur_path)[1:]),
+                            h_count
+                            ]
+                tol_path = list(path)[::-1] + list(cur_path)[1:]
+                if best_state.embed_node_type[start_node] in (4, 5):
+                    curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], 0))
+                else:
+                    curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], best_state.embed_node_type[start_node]))
+                if h_count % 2 == 1:
+                    curr_type = 1 - curr_type
+                ori = ori_map[(last_dir, curr_type, 0)]
+                best_state.embed_node_ori[key] = ori
+            else:
+                type = 2
+                path = dic["path"]
+                if key in best_state.idle_h_track:
+                    start_node, cur_path, h_count = best_state.idle_h_track[key]
+                    best_state.idle_h_track[key] = [
+                                start_node,
+                                tuple(list(path)[::-1] + list(cur_path)[1:]),
+                                h_count
+                                ]
+                else:
+                    best_state.idle_h_track[key] = [
+                                f"{key}_old",
+                                tuple(list(path)[::-1]),
+                                0
+                                ]
+        elif type in (4, 5):
+            type = 0
+        best_state.embed_node_type[key] = type
+
+    ceiling_paths = [dic["path"] for dic in ceiling_track.values()]
+    best_state.embed_path = tuple(list(best_state.embed_path)+ceiling_paths)
+
+    for dic in ceiling_track.values():
+        path = dic["path"]
+        for pt in path:
+            occ.add(pt)
+    best_state.occupied = frozenset(occ)
+
+    idle_place = {}
+    for key, dic in ceiling_track.items():
+        type = dic["type"]
+        if type > 1 and type not in (4, 5):
+            coord = dic["path"][-1]
+            idle_place[key] = coord
+    best_state.idle_place = idle_place
+
+    return best_state

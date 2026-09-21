@@ -18,3 +18,16 @@ dependencies = [
     "tqdm>=4.68.2,<4.69",
     "tqec>=0.1.0",
 ]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "nbconvert>=7.17.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: multi-minute-to-hour benchmark, run explicitly (not on every check)",
+]
+testpaths = ["tests"]
