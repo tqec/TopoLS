@@ -1,0 +1,58 @@
+=== dj_16: -b 2 -i 1 -t 0.5 ===
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 29
+Space-time volume: 2349.0
+Time: 29
+Space: 81.0
+Compilation time: 1.0605804920196533
+exit code: 0
+=== ghz_16: -b 2 -i 1 -t 0.5 ===
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 25
+Space-time volume: 2025.0
+Time: 25
+Space: 81.0
+Compilation time: 0.48686981201171875
+exit code: 0
+=== qft_16: -b 2 -i 1 -t 0.5 ===
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 804
+Space-time volume: 65124.0
+Time: 804
+Space: 81.0
+Compilation time: 29.288576364517212
+exit code: 0
+=== qpe_16: -b 2 -i 1 -t 0.5 ===
+Executing qpe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 902
+Space-time volume: 73062.0
+Time: 902
+Space: 81.0
+Compilation time: 35.29118776321411
+exit code: 0
+=== vqe_16: -b 2 -i 1 -t 0.5 ===
+Executing vqe_16 benchmark.
+Embedding progress:
+exit code: 1
+=== wstate_16: -b 2 -i 1 -t 0.5 ===
+Executing wstate_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 200
+Space-time volume: 16200.0
+Time: 200
+Space: 81.0
+Compilation time: 6.395216941833496
+exit code: 0
+=== qaoa_16: -b 2 -i 1 -t 0.5 ===
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 101
+Space-time volume: 8181.0
+Time: 101
+Space: 81.0
+Compilation time: 2.5501129627227783
+exit code: 0

@@ -11,6 +11,94 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-22 — Unified debugging pass begins: P0 fixes for two confirmed `UnboundLocalError`s in the fallback ladder
+
+User asked for the full bug list (from `docs/ARCHITECTURE.md`) prioritized,
+then said to start on P0: the gate-by-gate fallback's `block_state`/
+`qubit_map_pre_layer`/`occupied_zmax` `UnboundLocalError`, empirically hit
+during the "independent seed" detour two entries back. Explicitly asked
+for extra care given that detour had already broken things once, and to
+read the code line by line rather than guess.
+
+**Full trace of the bug** (read the entirety of `operation()`, all ~830
+lines, before touching anything): `block_state`/`qubit_map_pre_layer`/
+`occupied_zmax` are assigned only inside `if block_flag == 1:`, which
+fires on a *transition* to a later block -- `block` starts at 0, so
+entering block 0 is never itself a transition. All 3 read sites (gate-by-
+gate fallback, `driver.py` ~lines 483-541 before this fix) are reachable
+whenever block 0's own MCTS + ceiling-retry both fail, which had never
+been exercised by any of the 9 stock benchmarks (documented since Phase 0)
+until the independent-seed detour made it happen for real.
+
+**Fix**: seed all three, before the layer loop starts, with the "nothing
+embedded yet" values the `block_flag==1` branch would have produced had
+entering block 0 counted as a transition -- `block_state` as an
+`EmbeddingState` built from the initial `input_port_loc`/`input_port_ori`/
+`input_port_type` (from `auto_ports()`) with empty `embed_path`/
+`idle_h_track`/`idle_place`/`t_track`; `qubit_map_pre_layer = {q: q for q
+in range(q_num)}` (confirmed by reading `auto_ports()`: its `input_port_loc`
+keys already *are* qubit indices, so the "pre-existing external node for
+qubit q" is q itself); `occupied_zmax = frozenset()` (there is no previous
+block's top z-layer to union in for block 0 -- traced through both of its
+two call sites to confirm this, not assumed). A genuine later block
+transition still unconditionally overwrites all three exactly as before --
+this only changes behavior for the previously-crashing case.
+
+**Second bug found while validating the first, same root cause**:
+`pre_state`/`pre_ceiling_track`/`pre_node_type` are only assigned at the
+*end* of a layer's successful processing (`driver.py`, 2 write sites, both
+post-hoc). If layer 1 itself fails all the way through ceiling-retry --
+before ever completing once -- any of `ceiling()`'s 5 call sites reads
+these before they exist. Read the entirety of `ceiling()` (`embedding/
+ports.py`) before designing the fix: every one of its internal loops
+iterates over `ceiling_track`/`node_type`, so passing empty dicts makes it
+a pure no-op passthrough on `best_state` -- exactly "nothing embedded yet,
+nothing to promote." Fix: a *second, separate* `EmbeddingState` instance
+(same initial values as `block_state`, but not the same object --
+`ceiling()` mutates its `best_state` argument in place, so aliasing the
+two names to one instance would let a `ceiling()` call on one silently
+corrupt the other) plus `pre_ceiling_track = {}` / `pre_node_type = {}`.
+
+**A test-methodology correction from the user, worth recording**: first
+validation attempt used a `monkeypatch`-based synthetic script
+(`docs/test_p0_block0_fallback.py`, forces `mcts()` to fail for every layer
+past 1) to deterministically drive `bv_16` into block 0's fallback. That
+surfaced a *third*, different-looking `KeyError` in `edge_tracer` via
+`ceiling(..., final=True)`, reached through a "gate-by-gate's own first
+re-partitioned sub-layer already has no output connections" branch. User
+correctly pushed back: the monkeypatch harness itself was a new, untested
+construct with no track record, and its failure pattern ("everything past
+layer 1 fails, forever") doesn't correspond to how real MCTS failures
+behave -- pointed out block/layer structure is more nested than the patch
+assumed, and asked to set it aside rather than trust its output, in favor
+of forcing *real* benchmarks to fail via realistic (if extreme) CLI flags.
+This is the right call: the monkeypatch's `KeyError` is not confirmed to
+be an independently-reachable real bug (could be an artifact of the
+unrealistic "every layer fails identically" pattern) and is NOT logged in
+`docs/ARCHITECTURE.md`'s bug list pending further evidence -- don't want a
+false positive polluting the prioritized bug list the user just asked for.
+
+**Real validation, per the user's redirect**: `-t`/`--time_bound` was
+`type=int` in `docs/prog.py` and `docs/profile_boundedness.py`, blocking
+sub-1-second bounds needed for this kind of test -- changed both to
+`type=float` (harmless: `time.time() + time_limit` and comparisons work
+identically for int or float; existing integer CLI usage is unaffected).
+Then ran all 9 stock benchmarks with `-b 2 -i 1 -t 0.5` (job 4527) -- small
+blocks, 1 MCTS iteration, half-second time bound, deliberately crippled
+enough to fail most layers including layer 1 and block 0. Before both
+fixes: `vqe_16` raised `UnboundLocalError: local variable 'pre_state'
+referenced before assignment` at `driver.py:419` (job 4526's failure,
+first run). After both fixes: **all 9 benchmarks complete with exit code 0
+and no `UnboundLocalError` anywhere** (job 4527). Fast-subset regression
+(job 4528): `bv_16`/`dj_16`/`ghz_16` PASSED at exact equality against the
+unchanged golden values -- confirms the fix changes nothing for the
+already-working path, only the previously-crashing one.
+
+**`ARCHITECTURE.md` updated**: both bugs struck through with "Fixed
+2026-09-22" notes in the bug list, cross-referencing this entry.
+
+---
+
 ## 2026-09-22 — Phase 2 parallelization, part 2: the remaining 6 fallback-ladder seed loops
 
 Extended the faithful-replay root-parallelization (previous entries) to

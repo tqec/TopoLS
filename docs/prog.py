@@ -26,7 +26,7 @@ parser.add_argument('--random_seed', '-r', type=int, default=0,
                     help='Initial random seed for circuit compilation')
 parser.add_argument('--seed_step', '-s', type=int, default=5,
                     help='Number of random seed will be tried')
-parser.add_argument('--time_bound', '-t', type=int, default=3,
+parser.add_argument('--time_bound', '-t', type=float, default=3,
                     help='Time bound for each MCTS iteration')
 parser.add_argument('--iter_num', '-i', type=int, default=10000,
                     help='Number of iterations for MCTS')

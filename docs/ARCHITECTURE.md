@@ -420,10 +420,49 @@ Key steps, in order:
 - `lifting_path` (`layer_mcts.py:354`) returns `None` for a corner-free path;
   its only caller (in `basic_embedding`) indexes the result immediately
   without a `None` check.
-- The gate-by-gate fallback (`operation`, ~3298-3485) reads `occupied_zmax`,
+- ~~The gate-by-gate fallback (`operation`, ~3298-3485) reads `occupied_zmax`,
   `block_state`, `qubit_map_pre_layer` — all first assigned only inside the
   `block_flag == 1` branch. A failure occurring inside block 0 before that
-  branch runs would raise a `NameError`/`UnboundLocalError`.
+  branch runs would raise a `NameError`/`UnboundLocalError`.~~ **Fixed
+  2026-09-22 (P0, unified debugging pass has started for this specific bug
+  class — see `docs/REFACTOR_LOG.md`'s dated entry).** Confirmed reachable
+  (not just theoretical): triggered on `bv_16`/`ghz_16` during the
+  "independent seed" detour, and again deliberately via forced-failure
+  testing. Fix: `driver.py` now seeds `block_state`/`qubit_map_pre_layer`/
+  `occupied_zmax` before the layer loop starts, with the "nothing embedded
+  yet" values the `block_flag == 1` branch would have produced had
+  entering block 0 itself counted as a transition. A genuine later block
+  transition still unconditionally overwrites all three exactly as before.
+- ~~A sibling bug, found while fixing the one above: `pre_state`/
+  `pre_ceiling_track`/`pre_node_type` are only assigned at the end of a
+  layer's *successful* processing. If layer 1 itself fails all the way
+  through ceiling-retry, any of `ceiling()`'s 5 call sites reads these
+  before they exist.~~ **Fixed 2026-09-22, same entry.** Confirmed
+  reachable on `vqe_16` under an artificially tight iters/time_bound.
+  Fix: seeded before the loop with a *separate* "nothing embedded yet"
+  `EmbeddingState` (not the same object as `block_state` — `ceiling()`
+  mutates its argument in place, so sharing one instance between the two
+  names would let a `ceiling()` call on one silently corrupt the other)
+  plus empty `pre_ceiling_track`/`pre_node_type` dicts (`ceiling()` only
+  ever *adds* work found in `ceiling_track`, so empty makes it a no-op
+  passthrough — confirmed by reading the full function body before relying
+  on this).
+  **Validation for both fixes**: all 9 stock benchmarks run with
+  `-b 2 -i 1 -t 0.5` (an artificially crippled config designed to force
+  MCTS/ceiling-retry to fail on nearly every layer, including layer 1 and
+  block 0) now complete without `UnboundLocalError` (job 4527); the fast
+  regression subset (`bv_16`/`dj_16`/`ghz_16` at their normal production
+  config) still passes at exact equality (job 4528), confirming the fix
+  changes nothing for the already-working path. An earlier attempt to
+  validate via a `monkeypatch`-based synthetic test
+  (`docs/test_p0_block0_fallback.py`) surfaced a *third*, seemingly
+  unrelated `KeyError` in `edge_tracer` — the user correctly flagged that
+  the monkeypatch harness was a new, untrusted construct of its own and
+  asked to set it aside in favor of forcing real benchmarks to fail via
+  CLI flags instead, which is what actually validated the fix; the
+  monkeypatch-surfaced `KeyError` was not pursued further and is not
+  confirmed to be a real, independently-reachable bug (see
+  `docs/REFACTOR_LOG.md`'s dated entry for the full discussion).
 - `ceiling()` mutates its argument in place and returns it; the fallback
   ladder's control flow can structurally call it twice on the same
   `pre_state`, which would double-apply the `_old` renaming and duplicate

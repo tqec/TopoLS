@@ -195,6 +195,71 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     t_track_hist = {}
     idle_place = {}
 
+    # P0 fix (confirmed crash -- see docs/ARCHITECTURE.md's bug list and
+    # docs/REFACTOR_LOG.md's dated entry): `block_state` / `qubit_map_pre_layer`
+    # / `occupied_zmax` below are otherwise only assigned inside the
+    # `if block_flag == 1:` branch further down, which fires on a
+    # *transition* to a later block -- never for block 0 itself (`block`
+    # starts at 0, so entering it isn't a transition). If block 0's own
+    # MCTS/ceiling-retry ever fails and falls into the gate-by-gate
+    # fallback ladder, these three names were read before ever being
+    # assigned (`UnboundLocalError`) -- confirmed reachable this session.
+    # Seed them here with the "nothing embedded yet" values the
+    # block_flag==1 branch would have produced had entering block 0 itself
+    # counted as a transition, so block 0's fallback gets the same
+    # "start of this block" state a later block's fallback gets from a
+    # real ceiling() call. A genuine block transition (block_flag==1)
+    # unconditionally overwrites all three with the real computed values,
+    # exactly as before this fix -- this only changes behavior for the
+    # previously-crashing block-0-fails case.
+    block_state = EmbeddingState(
+        embed_node_pos=dict(input_port_loc),
+        embed_node_ori=dict(input_port_ori),
+        embed_node_type=dict(input_port_type),
+        embed_path=tuple(),
+        occupied=frozenset(input_port_loc.values()),
+        z_floor=z_floor,
+        x_min_floor=x_min_floor, x_max_floor=x_max_floor,
+        y_min_floor=y_min_floor, y_max_floor=y_max_floor,
+        idle_h_track={}, idle_place={}, t_track={},
+        node_type={}, input_connect={}, inter_connect=set(), output_connect={},
+        order=[], z_length=1,
+    )
+    qubit_map_pre_layer = {q: q for q in range(q_num)}
+    occupied_zmax = frozenset()
+
+    # P0 fix, part 2 (found while validating part 1 above -- see
+    # docs/REFACTOR_LOG.md's dated entry, same "unified debugging pass"):
+    # `pre_state`/`pre_ceiling_track`/`pre_node_type` are only assigned at
+    # the end of a layer's *successful* processing (after `ceiling_track`
+    # is computed from `best_state.reward(...)`), never before the loop
+    # starts. If layer 1 itself fails all the way through ceiling-retry --
+    # confirmed reachable this session (`vqe_16` under an artificially
+    # tight iters/time_bound) -- any of `ceiling()`'s 5 call sites reads
+    # these before they exist. `ceiling()` only ever *adds* work found in
+    # `ceiling_track`, so an empty `ceiling_track`/`node_type` makes it a
+    # no-op passthrough on `pre_state` -- exactly "nothing embedded yet,
+    # nothing to promote to the ceiling," matching `block_state` above.
+    # Deliberately a *separate* EmbeddingState instance (not the same
+    # object as `block_state`): `ceiling()` mutates its `best_state`
+    # argument in place, so sharing one object between these two names
+    # would let a ceiling() call on one silently corrupt the other.
+    pre_state = EmbeddingState(
+        embed_node_pos=dict(input_port_loc),
+        embed_node_ori=dict(input_port_ori),
+        embed_node_type=dict(input_port_type),
+        embed_path=tuple(),
+        occupied=frozenset(input_port_loc.values()),
+        z_floor=z_floor,
+        x_min_floor=x_min_floor, x_max_floor=x_max_floor,
+        y_min_floor=y_min_floor, y_max_floor=y_max_floor,
+        idle_h_track={}, idle_place={}, t_track={},
+        node_type={}, input_connect={}, inter_connect=set(), output_connect={},
+        order=[], z_length=1,
+    )
+    pre_ceiling_track = {}
+    pre_node_type = {}
+
     print("Embedding progress:")
     for i in tqdm(range(1, len(rows))):
 

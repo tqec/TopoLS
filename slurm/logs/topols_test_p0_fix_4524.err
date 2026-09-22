@@ -1,0 +1,7 @@
+usage: prog.py [-h] [--file_name FILE_NAME] [--block_size_max BLOCK_SIZE_MAX]
+               [--zx_opt ZX_OPT] [--dir_opt DIR_OPT] [--len LEN]
+               [--random_seed RANDOM_SEED] [--seed_step SEED_STEP]
+               [--time_bound TIME_BOUND] [--iter_num ITER_NUM]
+               [--saving_name SAVING_NAME] [--spread_num SPREAD_NUM]
+               [--initial_block INITIAL_BLOCK]
+prog.py: error: argument --time_bound/-t: invalid int value: '0.0001'

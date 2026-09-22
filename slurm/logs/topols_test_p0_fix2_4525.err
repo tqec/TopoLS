@@ -1,0 +1,13 @@
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:02<00:06,  2.06s/it] 25%|██▌       | 1/4 [00:02<00:06,  2.09s/it]
+Traceback (most recent call last):
+  File "/home/junyuzh/QEC/upgrade/TopoLS/docs/test_p0_block0_fallback.py", line 68, in <module>
+    best_state, pos_hist, ori_hist, path_hist, type_hist = operation(
+  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/driver.py", line 539, in operation
+    best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type, final=True)
+  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/embedding/ports.py", line 103, in ceiling
+    curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], best_state.embed_node_type[start_node]))
+  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/routing/color_algebra.py", line 88, in edge_tracer
+    dirs = [axis_map[delta] for delta in deltas]           # Map deltas to axis labels ('i', 'j', 'k')
+  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/routing/color_algebra.py", line 88, in <listcomp>
+    dirs = [axis_map[delta] for delta in deltas]           # Map deltas to axis labels ('i', 'j', 'k')
+KeyError: (0, 0, 0)

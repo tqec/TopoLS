@@ -1,0 +1,63 @@
+=== dj_16: -b 2 -i 1 -t 0.5 ===
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 29
+Space-time volume: 2349.0
+Time: 29
+Space: 81.0
+Compilation time: 1.120741605758667
+exit code: 0
+=== ghz_16: -b 2 -i 1 -t 0.5 ===
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 25
+Space-time volume: 2025.0
+Time: 25
+Space: 81.0
+Compilation time: 0.5458781719207764
+exit code: 0
+=== qft_16: -b 2 -i 1 -t 0.5 ===
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 804
+Space-time volume: 65124.0
+Time: 804
+Space: 81.0
+Compilation time: 31.447355270385742
+exit code: 0
+=== qpe_16: -b 2 -i 1 -t 0.5 ===
+Executing qpe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 902
+Space-time volume: 73062.0
+Time: 902
+Space: 81.0
+Compilation time: 35.23983955383301
+exit code: 0
+=== vqe_16: -b 2 -i 1 -t 0.5 ===
+Executing vqe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 73
+Space-time volume: 5913.0
+Time: 73
+Space: 81.0
+Compilation time: 8.031285762786865
+exit code: 0
+=== wstate_16: -b 2 -i 1 -t 0.5 ===
+Executing wstate_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 200
+Space-time volume: 16200.0
+Time: 200
+Space: 81.0
+Compilation time: 6.458747625350952
+exit code: 0
+=== qaoa_16: -b 2 -i 1 -t 0.5 ===
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 101
+Space-time volume: 8181.0
+Time: 101
+Space: 81.0
+Compilation time: 2.5015110969543457
+exit code: 0
