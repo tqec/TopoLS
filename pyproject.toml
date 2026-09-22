@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.10.9",
     "numpy>=2.0,<2.5",
     "pandas>=2.3,<3.0",
+    "plotly>=7.1.0",
     "pyvista==0.48.1",
     "pyzx==0.10.3",
     "sinter==1.15.0",

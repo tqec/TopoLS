@@ -1,19 +1,23 @@
 from topols.export.bgraph import *
 from topols.export.visualize import *
+from topols.export.visualize_interactive import visualize_interactive
 import argparse
 import os
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Process quantum circuit')
-parser.add_argument('--file_name', '-f', default='quantum_circuit', 
+parser.add_argument('--file_name', '-f', default='quantum_circuit',
                     help='Circuit file name (without .qasm extension)')
 parser.add_argument('--plot', '-p', type=bool, default=False,
                     help='enabling plot the pipe diagram')
+parser.add_argument('--interactive', '-i', type=bool, default=False,
+                    help='write a draggable/rotatable Plotly HTML pipe diagram instead of a static Matplotlib plot')
 
 args = parser.parse_args()
 
 benchmark = args.file_name
 plot = args.plot
+interactive = args.interactive
 
 pos, ori, type, paths, io_info = load_compilation_result(f"result/topols/{benchmark}.pkl")
 
@@ -40,7 +44,14 @@ if plot:
     os.makedirs(dir_path, exist_ok=True)
     visualize(bgraph_metadata, edge_metadata, benchmark, cube_size=0.4, pipe_thickness=0.18, plot=plot)
 
-# execution example: 
+if interactive:
+    dir_path = os.path.join("result", "visualization")
+    os.makedirs(dir_path, exist_ok=True)
+    out_path = visualize_interactive(bgraph_metadata, edge_metadata, benchmark, cube_size=0.4, pipe_thickness=0.18)
+    print(f"Interactive pipe diagram written to: {out_path}")
+
+# execution example:
 '''
 python3 2tqec.py -f ghz_16 -p True
+python3 2tqec.py -f ghz_16 -i True
 '''
