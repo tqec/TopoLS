@@ -1,4 +1,6 @@
+import os
 import random
+from multiprocessing import Pool
 
 from tqdm import tqdm
 
@@ -12,6 +14,55 @@ from topols.zx_transform.layering import (
     idling_nodes_insertion_block_vanilla,
     layer_info,
 )
+
+# Phase 2 parallelization (see docs/REFACTOR_LOG.md's dated entry): the two
+# "normal path" seed loops in operation() below (move_num=1 and, if
+# dir_opt==1, move_num=move_num) launch `seed_step` structurally
+# independent MCTS searches and keep whichever gets the smallest volume --
+# a textbook root-parallelization opportunity. The one subtlety is that
+# `mcts()` (via `EmbeddingState.moves()`) consumes the *global* `random`
+# module state, and each seed's preamble (`random.seed(seed)` + shuffling
+# `node_input_connect` in place) leaves that global state at a point that
+# depends on every earlier seed's preamble having already run, in order --
+# not just on `seed` itself. To parallelize the expensive `mcts()` calls
+# without changing a single bit of output, this worker captures a
+# `random.getstate()` snapshot in the *serial* preamble phase, right before
+# where `mcts()` would have been called, and restores it with
+# `random.setstate()` in the worker process before actually calling
+# `mcts()`. This reproduces the exact same draw sequence `mcts()`/`moves()`
+# would have seen serially, just executed concurrently.
+def _mcts_worker(root_state, rng_state, iters, time_limit, move_num, block_switch, ceiling_switch, layer, length):
+    random.setstate(rng_state)
+    return mcts(root_state, iters=iters, time_limit=time_limit, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=layer, length=length)
+
+
+def _available_cpu_count():
+    """`os.cpu_count()` reports the whole machine's core count, not this
+    process's actual Slurm allocation -- confirmed on this cluster
+    (pennqsl-1): a job requesting `--cpus-per-task=4` still sees
+    `os.cpu_count() == 192`. `os.sched_getaffinity(0)` respects the
+    cgroup/cpuset Slurm actually assigns and correctly reports 4 in the same
+    job, so prefer it; fall back to `os.cpu_count()` where affinity isn't
+    available (e.g. non-Linux) -- see docs/REFACTOR_LOG.md's dated entry."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
+def _run_seeds_parallel(jobs):
+    """Runs a list of `_mcts_worker` argument tuples (one per seed) across a
+    process pool sized to the number of jobs (capped by the CPUs actually
+    available to this process -- see `_available_cpu_count`), and returns
+    results in the same order as `jobs` -- so callers can reduce over them
+    with the exact same first-wins tie-breaking the serial seed loop used.
+    Scales automatically with `seed_step` (the number of jobs) up to that
+    cap; not a hardcoded worker count."""
+    if not jobs:
+        return []
+    n_procs = max(1, min(len(jobs), _available_cpu_count()))
+    with Pool(processes=n_procs) as pool:
+        return pool.starmap(_mcts_worker, jobs)
 
 # ------------------------------------------------------------------------------
 # Main Operation: Layer-by-Layer 3D Embedding with MCTS and Fallback Strategies
@@ -239,6 +290,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         best_state = None
         best_reward = -1e9
 
+        jobs = []
         for seed in range(seed_init, seed_init+seed_step):
 
             random.seed(seed)
@@ -270,8 +322,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 for _ in range(len(priority_keys)):
                     move = root_state.moves(ceiling_switch=True)[0]
                     root_state = root_state.next_state(move)
-            best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=1, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=i, length=length)
+            rng_snapshot = random.getstate()
+            jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, ceiling_switch, i, length))
 
+        for best_state_ in _run_seeds_parallel(jobs):
             if best_state_ is not None:
                 reward_value = -best_state_.vol
                 if reward_value > best_reward:
@@ -279,6 +333,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     best_state = best_state_
 
         if dir_opt == 1:
+            jobs = []
             for seed in range(seed_init, seed_init+seed_step):
 
                 random.seed(seed)
@@ -310,8 +365,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     for _ in range(len(priority_keys)):
                         move = root_state.moves(ceiling_switch=True)[0]
                         root_state = root_state.next_state(move)
-                best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=i, length=length)
+                rng_snapshot = random.getstate()
+                jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, ceiling_switch, i, length))
 
+            for best_state_ in _run_seeds_parallel(jobs):
                 if best_state_ is not None:
                     reward_value = -best_state_.vol
                     if reward_value > best_reward:
@@ -342,6 +399,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     best_state = None
                     best_reward = -1e9
 
+                    jobs = []
                     for seed in range(seed_init, seed_init+seed_step):
 
                         random.seed(seed)
@@ -363,8 +421,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         for _ in range(len(priority_keys)):
                             move = root_state.moves(ceiling_switch=True)[0]
                             root_state = root_state.next_state(move)
-                        best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=1, block_switch=block_switch, ceiling_switch=True, layer=i, length=length)
+                        rng_snapshot = random.getstate()
+                        jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, True, i, length))
 
+                    for best_state_ in _run_seeds_parallel(jobs):
                         if best_state_ is not None:
                             reward_value = -best_state_.vol
                             if reward_value > best_reward:
@@ -372,6 +432,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 best_state = best_state_
 
                     if dir_opt == 1:
+                        jobs = []
                         for seed in range(seed_init, seed_init+seed_step):
 
                             random.seed(seed)
@@ -393,8 +454,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             for _ in range(len(priority_keys)):
                                 move = root_state.moves(ceiling_switch=True)[0]
                                 root_state = root_state.next_state(move)
-                            best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=move_num, block_switch=block_switch, ceiling_switch=True, layer=i, length=length)
+                            rng_snapshot = random.getstate()
+                            jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, True, i, length))
 
+                        for best_state_ in _run_seeds_parallel(jobs):
                             if best_state_ is not None:
                                 reward_value = -best_state_.vol
                                 if reward_value > best_reward:
@@ -525,6 +588,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         best_state = None
                         best_reward = -1e9
 
+                        jobs = []
                         for seed in range(seed_init, seed_init+seed_step):
 
                             random.seed(seed)
@@ -534,8 +598,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             random.shuffle(keys)
                             order = keys
                             root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
-                            best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=1, block_switch=block_switch, ceiling_switch=False, layer=j, length=length)
+                            rng_snapshot = random.getstate()
+                            jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, False, j, length))
 
+                        for best_state_ in _run_seeds_parallel(jobs):
                             if best_state_ is not None:
                                 reward_value = -best_state_.vol
                                 if reward_value > best_reward:
@@ -543,6 +609,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     best_state = best_state_
 
                         if dir_opt == 1:
+                            jobs = []
                             for seed in range(seed_init, seed_init+seed_step):
 
                                 random.seed(seed)
@@ -552,8 +619,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 random.shuffle(keys)
                                 order = keys
                                 root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
-                                best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=move_num, block_switch=block_switch, ceiling_switch=False, layer=j, length=length)
+                                rng_snapshot = random.getstate()
+                                jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, False, j, length))
 
+                            for best_state_ in _run_seeds_parallel(jobs):
                                 if best_state_ is not None:
                                     reward_value = -best_state_.vol
                                     if reward_value > best_reward:
@@ -583,6 +652,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 best_state = None
                                 best_reward = -1e9
 
+                                jobs = []
                                 for seed in range(seed_init, seed_init+seed_step):
 
                                     random.seed(seed)
@@ -604,7 +674,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     for _ in range(len(priority_keys)):
                                         move = root_state.moves(ceiling_switch=True)[0]
                                         root_state = root_state.next_state(move)
-                                    best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=1, block_switch=block_switch, ceiling_switch=True, layer=i, length=length)
+                                    rng_snapshot = random.getstate()
+                                    jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, True, i, length))
+
+                                for best_state_ in _run_seeds_parallel(jobs):
                                     if best_state_ is not None:
                                         reward_value = -best_state_.vol
                                         if reward_value > best_reward:
@@ -612,6 +685,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                             best_state = best_state_
 
                                 if dir_opt == 1:
+                                    jobs = []
                                     for seed in range(seed_init, seed_init+seed_step):
 
                                         random.seed(seed)
@@ -633,7 +707,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                         for _ in range(len(priority_keys)):
                                             move = root_state.moves(ceiling_switch=True)[0]
                                             root_state = root_state.next_state(move)
-                                        best_state_ = mcts(root_state, iters=iter_num, time_limit=time_bound, move_num=move_num, block_switch=block_switch, ceiling_switch=True, layer=i, length=length)
+                                        rng_snapshot = random.getstate()
+                                        jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, True, i, length))
+
+                                    for best_state_ in _run_seeds_parallel(jobs):
                                         if best_state_ is not None:
                                             reward_value = -best_state_.vol
                                             if reward_value > best_reward:

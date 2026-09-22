@@ -106,4 +106,35 @@ branch's buggy call sites, which deliberately keep their wrong loop nesting
 (commented in place, see `docs/ARCHITECTURE.md`'s bug list). Case 2 (idle)
 and Case 3 (Hadamard)'s input-port handling (chain-building, not
 orientation-setting) is a genuinely different shape and was left as-is --
-not a missed dedup opportunity. **Not started**: Phase 2 (Rust port).
+not a missed dedup opportunity.
+
+**Phase 2 (profile + optimize the Python MCTS implementation) is well
+underway**: py-spy hotspot profiling done; landed fixes so far are the
+in-loop reward cache, `add()`/`manhattan()` inlining, a loop-hoisted
+redundant set-copy in `route_single_T_to_boundary`, removing a
+double-copy (`set(occ).copy()` -> `set(occ)`) at 7 call sites in
+`state.py`, a `bounding_box()` dead-code removal (`geometry.py` -- called
+on every `EmbeddingState` construction, was computing and discarding
+unused x/y transposes), a `color_switch()` cleanup (`routing/
+color_algebra.py` -- hand-written cross product instead of `np.cross`,
+fewer set allocations), and -- the biggest single win -- parallelizing
+**all 8** seed loops in `driver.py`'s `operation()` (the two "normal path"
+ones plus all 6 fallback-ladder ones) via `multiprocessing`
+(root-parallelization across independent MCTS seed trials, using a
+`random.getstate()`/`setstate()` snapshot to reproduce the serial RNG
+draw sequence exactly, so results are unchanged; worker count auto-scales
+with `seed_step` up to `os.sched_getaffinity(0)`'s CPU count, not
+hardcoded and not `os.cpu_count()` -- the latter reports the whole node,
+not the job's actual Slurm allocation, confirmed wrong on this cluster).
+Cumulative effect on `grover_6`'s production-config compile time:
+2366.29s -> 738.31s (~3.2x). Also found (documented, not fixed -- changes
+actual routing outcomes) a missing stale-heap-entry guard in
+`routing/astar.py`'s three A* variants -- see `docs/ARCHITECTURE.md`'s bug
+list and `docs/REFACTOR_LOG.md`'s matching entry. See `docs/REFACTOR_LOG.md`
+for full details, the "diminishing returns" finding for further
+Python-level micro-optimization, and an earlier "independent seed" detour
+that was tried,
+found to make `bv_16`/`ghz_16` crash and `dj_16` measurably worse, and
+reverted.
+
+**Not started**: Phase 3 (Rust port).

@@ -1,0 +1,22 @@
+Executing grover_6 benchmark.
+Embedding progress:
+DEBUG: entering ceiling-retry at layer 25
+DEBUG: entering ceiling-retry at layer 31
+DEBUG: entering ceiling-retry at layer 47
+DEBUG: entering ceiling-retry at layer 51
+DEBUG: entering ceiling-retry at layer 129
+DEBUG: entering ceiling-retry at layer 223
+Failed to find a valid embedding for layer 263 with ceiling, start gate by gate embedding.
+DEBUG: entering ceiling-retry at layer 276
+DEBUG: entering ceiling-retry at layer 288
+DEBUG: entering ceiling-retry at layer 302
+DEBUG: entering ceiling-retry at layer 380
+DEBUG: entering ceiling-retry at layer 478
+DEBUG: entering ceiling-retry at layer 484
+DEBUG: entering ceiling-retry at layer 542
+DEBUG: entering ceiling-retry at layer 560
+x_length: 5.0 y_length: 7.0 z_length: 1020
+Space-time volume: 35700.0
+Time: 1020
+Space: 35.0
+Compilation time: 33.021207094192505

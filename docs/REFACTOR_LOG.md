@@ -11,6 +11,231 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-22 — Phase 2 parallelization, part 2: the remaining 6 fallback-ladder seed loops
+
+Extended the faithful-replay root-parallelization (previous entries) to
+the 6 seed loops inside `operation()`'s fallback ladder (top-level
+ceiling-retry x2, gate-by-gate embedding x2, second-level ceiling-retry
+x2) -- the ones deliberately left serial the first time around because
+they have "zero regression coverage" from any of the 9 stock benchmarks
+(documented since Phase 0). Same mechanical transform as the two "normal
+path" loops: serial preamble (unchanged) builds `jobs` (each a
+`(root_state, rng_snapshot, ...)` tuple, snapshotting `random.getstate()`
+right before where the direct `mcts()` call used to be), then
+`for best_state_ in _run_seeds_parallel(jobs): ...` replaces the old
+immediate `best_state_ = mcts(...)` + reduce.
+
+**Real empirical validation, not just "it compiles."** Since this path is
+untested by the 9 stock benchmarks, syntax-checking and running the fast
+regression suite (which never touches this code) wouldn't have caught a
+mistake here. Temporarily re-enabled the three pre-existing (but
+commented-out) fallback-tier print statements plus one extra ad hoc debug
+print, then hunted for a CLI config that actually exercises the ladder:
+`dj_16`/`bv_16` with `-b 2 -i 3` never triggered it at all (even a
+3-iteration MCTS budget succeeds on every layer of these -- they're
+structurally easy, not just "usually succeeds"). `grover_6` with
+`-b 2 -i 1 -t 1` did: **ceiling-retry fired 15 times** (layers 25, 31, 47,
+51, 129, 223, 276, 288, 302, 380, 478, 484, 542, 560) and **gate-by-gate
+embedding fired once** (layer 263, after ceiling-retry also failed there)
+-- both now-parallelized tiers -- and the whole compile still completed
+successfully (exit 0, produced a full result: volume 35700,
+compile time 33.02s, job 4520). Didn't confirm the second-level
+ceiling-retry or `basic_embedding` brute-force tiers fired in this
+particular run (no visible marker for them at this config), so those two
+remain validated only by code inspection + the mechanical-transform
+argument, not by an observed firing -- flagging honestly rather than
+overclaiming full coverage.
+
+Removed all temporary debug prints afterward (confirmed via
+`git diff | grep -F DEBUG` returning nothing) and reverted the three
+pre-existing prints back to commented-out. Final fast-subset check (job
+4521): `bv_16`/`dj_16`/`ghz_16` PASSED, 46.34s -- confirms the debug
+add/remove cycle didn't disturb the normal path either.
+
+---
+
+## 2026-09-22 — Phase 2 Step 2c continued again: `bounding_box` dead-code removal, `color_switch` cleanup, `_available_cpu_count` fix
+
+User asked for another line-by-line pass looking for more Python-level
+speedups, this time reading `routing/color_algebra.py` and `geometry.py`
+(not yet examined closely this session).
+
+**`geometry.py`'s `bounding_box()`** -- called on *every* `EmbeddingState`
+construction (i.e. every MCTS move; one of the hottest functions in the
+compiler) -- had genuine dead code: `x_max_floor`/`x_min_floor`/
+`y_max_floor`/`y_min_floor` are plain parameters, entirely independent of
+`points`/`paths`, yet the original code built `position_points` +
+`path_points`, concatenated them, and ran `_, _, zs = zip(*all_points)` --
+a full transpose that computed x and y tuples only to discard them, just
+to get `max(zs)`. Replaced with a direct streaming max over `pt[2]` values
+(points dict is never empty at the call site -- guarded by `len(...) < 2`
+before `bounding_box` is even called), skipping the x/y transpose and the
+two intermediate list allocations entirely.
+
+**`routing/color_algebra.py`'s `color_switch()`**: (1) `np.cross(v_in,
+v_out).tolist()` replaced with a hand-written 3-term cross product --
+numpy's per-call array-construction/ufunc-dispatch overhead dominates for
+a single 3-vector cross product; this runs once per corner candidate, and
+long T-gate-heavy paths (z ~600+) can have many corners. Removed the
+now-unused `import numpy as np`. (2) `occ = set(occupied) | set(path)`
+(three set allocations: copy, new-from-path, union) replaced with
+`occ = set(occupied); occ.update(path)` (one allocation). (3)
+`{a_p, b_p}.isdisjoint(occ)` / `{b_p, c_p}.isdisjoint(occ)` (small set
+construction per check, in an inner loop) replaced with
+`a_p not in occ and b_p not in occ` / equivalent.
+
+**Verification:**
+- Fast subset exact-equality (job 4515): `bv_16`/`dj_16`/`ghz_16` PASSED,
+  55.43s (essentially unchanged from job 4514's 55.91s -- these benchmarks
+  are too small for `bounding_box`'s per-call savings to show, and
+  `color_switch` likely isn't exercised by them at all).
+- `grover_6` production-config timing (job 4516): **738.31s**,
+  `(x=5.0, y=7.0, z=657, volume=22995)` -- **identical output to job 4512**
+  (740.40s), confirming these are true zero-behavior-change fixes (unlike
+  the Tier 1 cache/inlining fixes, nothing here touches RNG or
+  iteration-count-affecting timing, so even `grover_6`'s search-bound
+  jitter didn't move the result this time). Timing improvement is
+  **negligible (-0.28%)**, same pattern as the `route_single_T_to_boundary`
+  loop-hoist finding two entries back: these functions' *per-call* cost is
+  simply too small in absolute terms (nanoseconds-to-microseconds) to
+  register against A*/routing's dominant cost, no matter how many times
+  they're called or how much waste is removed from each call.
+
+**Assessment**: safe, zero-risk Python-level micro-optimizations of this
+kind have hit diminishing returns for wall-clock impact -- kept both fixes
+(correct by construction, zero downside), but flagging to the user that
+further line-by-line passes of this specific kind (dead code / redundant
+allocations in already-cheap functions) are unlikely to move the needle
+further. The remaining levers with real headroom are the documented A*
+stale-heap-entry gap (changes outcomes, deferred to the unified debugging
+pass / Rust port) and more parallelization.
+
+**Also fixed this session, same day**: `_available_cpu_count()` added to
+`driver.py` (see the parallelization entry above) -- `os.cpu_count()`
+reports the whole node (192 on `pennqsl-1`), not this job's actual
+`--cpus-per-task` allocation; `os.sched_getaffinity(0)` correctly reports
+the latter (confirmed via a diagnostic job, 4513) and is now what the
+worker-pool size is capped by. Not hardcoded: scales automatically with
+`seed_step` up to whatever the job was actually allocated. Re-verified
+with job 4514 (55.91s, no regression).
+
+---
+
+## 2026-09-22 — Phase 2 parallelization: independent-seed detour (reverted) + faithful-replay root-parallelization (landed)
+
+**Goal**: parallelize the `seed_init..seed_init+seed_step` seed loops in
+`driver.py`'s `operation()` -- each seed runs a structurally independent
+MCTS search and the best `.vol` wins, a textbook root-parallelization
+opportunity, per the user's request to focus on parallelization next.
+
+**Detour, tried and reverted**: before parallelizing, found that all 8
+seed loops shuffle `node_input_connect[key]` *in place* on the *shared*
+dict object every seed iteration -- so seed `k`'s shuffle result depends on
+whatever seeds `0..k-1` (and, across the two seed loops in one layer, the
+*other* loop's seeds) already left the list looking like, not on `seed`
+alone. This breaks naive `multiprocessing` parallelization (each worker
+would get an independently-pickled, unshuffled copy). User initially
+agreed to an explicit, logged exception to the "preserve behavior" rule
+(rule 1) and switch to giving each seed a fresh, independent shuffle
+instead (arguably more correct given what "seed" implies). Implemented
+across all 8 sites, ran the fast regression subset to see the new values:
+**`dj_16`'s volume got 73% worse (891 -> 1539, z 11 -> 19)**, and
+**`bv_16`/`ghz_16` both crashed** with `UnboundLocalError: local variable
+'block_state' referenced before assignment` -- the previously-documented
+(`docs/ARCHITECTURE.md`) gate-by-gate-fallback bug, triggered because the
+weaker per-seed diversity pushed these benchmarks' normal MCTS pass to
+fail for the first time ever, falling into the fallback ladder that has
+"zero regression coverage" from any of the 9 stock benchmarks. Conclusion:
+the existing "accumulated shuffle" pattern, despite looking like an
+implementation quirk, is empirically providing *better* effective
+diversity than true independent seeding at `seed_step=2` for these
+circuits -- not just "different," genuinely worse. **Reverted via `git
+checkout -- src/topols/driver.py`** back to the last commit (`c3d0235`);
+user chose to go back to the originally-recommended faithful-replay
+approach instead of pursuing this further (e.g. larger `seed_step`, or
+fixing the `block_state` bug) -- logging this as a closed dead end, not
+a "todo," since reopening it would need to fix the fallback-ladder bug
+first (out of scope for now) and re-validate diversity at a larger
+`seed_step`.
+
+**Landed: faithful-replay root-parallelization.** Added
+`_mcts_worker`/`_run_seeds_parallel` (module-level, `driver.py`) and
+parallelized the two "normal path" seed loops (`driver.py`, move_num=1 and
+the `dir_opt==1` move_num=move_num pass) -- the ones every one of the 9
+stock benchmarks actually exercises. Deliberately left the other 6
+fallback-ladder seed loops serial (same zero-coverage reasoning as above --
+not worth compounding untested-path risk for a parallelization change).
+
+Key correctness subtlety, found by reading the code rather than assuming:
+`mcts()` (via `EmbeddingState.moves()`) consumes the *global* `random`
+module state, and each seed's cheap preamble (`random.seed(seed)` +
+in-place shuffling of the shared `node_input_connect`, which is
+*intentionally kept as-is this time*, unlike the reverted detour above)
+leaves that global state at a point that depends on every earlier seed's
+preamble having already run in order. So parallelizing just the expensive
+`mcts()` call requires reproducing the *exact* global RNG state it would
+have seen serially, not just the same `root_state`. Fix: run the cheap
+preamble serially, in order, exactly as before (unchanged); right before
+where `mcts()` would have been called, capture `random.getstate()`; hand
+`(root_state, rng_snapshot, ...)` to a `multiprocessing.Pool` worker that
+does `random.setstate(rng_snapshot)` then calls `mcts()`. This reproduces
+the identical draw sequence `mcts()`/`moves()` would have seen serially,
+just executed concurrently -- a pure change in *when* the expensive part
+runs, not *what* it computes. Pool is created fresh per seed-loop call
+(`with Pool(...) as pool:`, sized to `min(seed_step, cpu_count)`) rather
+than kept alive across the whole `operation()` call, trading a small
+amount of fork overhead for guaranteed cleanup on every one of
+`operation()`'s many early-return paths.
+
+**Verification:**
+- Fast subset exact-equality (job 4511, `run_regression_fast.slurm`):
+  `bv_16`/`dj_16`/`ghz_16` all PASSED against the *original* golden values
+  (486/891/243 -- unaffected by the reverted detour). Wall time for the
+  whole 3-benchmark suite: **55.98s**, down from job 4507's pre-change
+  84.38s (-33.7%) -- notable because these are *iters-bound* benchmarks
+  (never search-bound per the boundedness profiling), so this speedup is
+  coming purely from `seed_step=2` MCTS calls now overlapping, not from
+  any change in how much search happens.
+- `grover_6` production-config timing (job 4512, same CLI flags as jobs
+  4446/4506/4508): **740.40s**, `(x=5.0, y=7.0, z=657, volume=22995)`.
+  Extents/volume differ from job 4508's `(z=663, volume=23205)` -- expected
+  and not a correctness concern, since `grover_6` is the documented
+  search-bound/non-deterministic benchmark (job 4438 vs 4446) where this
+  kind of run-to-run variation predates every change made this session;
+  `bv_16`/`dj_16`/`ghz_16` are what gate correctness here, not `grover_6`.
+  **-29.9% vs job 4508 (1055.81s)** from parallelization alone.
+
+**Cumulative effect of every Phase 2 fix so far** (Tier 0 cache, Tier 1
+item 4 in-loop cache, `add`/`manhattan` inlining, `route_single_T_to_boundary`
+loop-hoist + `state.py` double-copy removal, and now seed-loop
+parallelization), measured on `grover_6` production config: job 4446
+(2366.29s, pre-Phase-2 baseline) -> job 4512 (740.40s) = **-68.7%, ~3.2x**.
+
+**Follow-up same day: worker-count cap was wrong on this cluster.**
+`_run_seeds_parallel` originally capped the pool size with
+`os.cpu_count()`. User asked directly whether the parallel worker count is
+hardcoded or scales with, e.g., a larger `seed_step` / more allocated
+cores -- prompted checking this concretely rather than assuming. Ran a
+diagnostic job (4513, `--cpus-per-task=4`) printing both `os.cpu_count()`
+and `len(os.sched_getaffinity(0))`: **`os.cpu_count()` returned 192** (the
+whole `pennqsl-1` node) while **`os.sched_getaffinity(0)` correctly
+returned 4** (the actual Slurm cgroup/cpuset allocation). So the original
+cap would silently oversubscribe real CPUs on this cluster once
+`seed_step` exceeds the job's actual allocation (e.g. `-s 8` on a
+`--cpus-per-task=4` job would try to spawn 8 workers fighting over 4
+cores, likely *slower* than fewer, correctly-sized workers). Added
+`_available_cpu_count()`: prefers `os.sched_getaffinity(0)`, falls back to
+`os.cpu_count()` only if `sched_getaffinity` isn't available (non-Linux).
+Confirmed the worker count is not hardcoded -- it's `min(seed_step,
+_available_cpu_count())`, so it scales automatically with `-s` up to
+whatever this job was actually allocated; there is currently no separate
+CLI flag to set the worker count independent of `seed_step` (not asked
+for yet). Re-ran the fast subset (job 4514) to confirm this is a pure
+correctness-neutral cap fix: `bv_16`/`dj_16`/`ghz_16` PASSED, 55.91s
+(job 4511's post-parallelization baseline was 55.98s -- no regression).
+
+---
+
 ## 2026-09-22 — Phase 2 Step 2c continued: two more Tier 1 fixes (loop-hoisted set copy, redundant double-copy removal)
 
 Continuing the "re-read the code for more inefficiencies" pass requested

@@ -1,7 +1,5 @@
 from itertools import groupby
 
-import numpy as np
-
 from topols.geometry import add, neg, vector
 
 # ---------------------------------------------------------------------------
@@ -112,9 +110,13 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
     conflicts between overlapping or adjacent paths.
     """
 
-    # Copy inputs to avoid side effects
+    # Copy inputs to avoid side effects. Tier 1 (Phase 2 -- see
+    # docs/REFACTOR_LOG.md's dated entry): `set(occupied) | set(path)` built
+    # three sets (a copy of `occupied`, a new set from `path`, and the union
+    # result) where one copy-then-update suffices.
     path = list(path)
-    occ  = set(occupied) | set(path)
+    occ  = set(occupied)
+    occ.update(path)
 
     # Require sufficient context around a corner
     if len(path) < 5:
@@ -129,8 +131,17 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
         if v_in == v_out:
             continue
 
-        # Normal direction of the corner (right-hand rule)
-        face_dir = tuple(np.cross(v_in,v_out).tolist())
+        # Normal direction of the corner (right-hand rule). Tier 1 (Phase 2
+        # -- see docs/REFACTOR_LOG.md's dated entry): a hand-computed 3D
+        # cross product avoids numpy's per-call array-construction/ufunc-
+        # dispatch overhead for what is just three scalar multiplications --
+        # this loop runs once per corner candidate, and long T-gate-heavy
+        # paths (z ~600+) can have many corners.
+        face_dir = (
+            v_in[1]*v_out[2] - v_in[2]*v_out[1],
+            v_in[2]*v_out[0] - v_in[0]*v_out[2],
+            v_in[0]*v_out[1] - v_in[1]*v_out[0],
+        )
 
         # Case 1: reroute the entry side of the corner
         a_pre = path[i-2]
@@ -148,7 +159,7 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
             a_p, b_p = add(a, dir_vec), add(b, dir_vec)
 
             # Validate against occupancy, bounds, and floor constraint
-            if ({a_p, b_p}.isdisjoint(occ) and a_p[2] >= z_floor and b_p[2] >= z_floor and
+            if (a_p not in occ and b_p not in occ and a_p[2] >= z_floor and b_p[2] >= z_floor and
                 a_p[0] >= x_min_floor and a_p[0] <= x_max_floor and
                 a_p[1] >= y_min_floor and a_p[1] <= y_max_floor and
                 b_p[0] >= x_min_floor and b_p[0] <= x_max_floor and
@@ -171,7 +182,7 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
         for dir_vec in dirs:
             b_p, c_p = add(b, dir_vec), add(c, dir_vec)
 
-            if ({b_p, c_p}.isdisjoint(occ) and b_p[2] >= z_floor and c_p[2] >= z_floor and
+            if (b_p not in occ and c_p not in occ and b_p[2] >= z_floor and c_p[2] >= z_floor and
                 b_p[0] >= x_min_floor and b_p[0] <= x_max_floor and
                 b_p[1] >= y_min_floor and b_p[1] <= y_max_floor and
                 c_p[0] >= x_min_floor and c_p[0] <= x_max_floor and
