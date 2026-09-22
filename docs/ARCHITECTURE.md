@@ -440,3 +440,33 @@ Key steps, in order:
 - Dead code of note: `compute_center_of_mass`/`compute_center_of_space`
   (lines 43/51, unused anywhere), the `paths.append(...)` accumulation inside
   `reward()` (never returned), `tol_path_lift` in `basic_embedding`.
+- **`routing/astar.py`'s three A* variants (`shortest_path_with_zmax`,
+  `shortest_path`'s two phases, `shortest_path_base`) are missing the
+  standard "skip stale heap entries" guard.** Found 2026-09-22 while
+  answering the user's "is A* efficient" question -- see
+  `docs/REFACTOR_LOG.md`'s matching entry for the full derivation. Each
+  variant uses lazy deletion (push a new, better `(f, g, node, parent)`
+  tuple instead of decrease-key on the old one) but never checks, after
+  `heapq.heappop`, whether the popped `g` still matches `seen[node]` before
+  doing `back[node] = parent` and expanding neighbors. Two consequences:
+  (1) *wasted work*: a stale (worse) duplicate pop still pays for a full
+  neighbor-relaxation pass that can never improve anything, burning
+  iterations against the 100ms wall-clock timeout and the 100k `count` cap
+  for no benefit; (2) *possibly wrong-length paths*: `back[node]` is
+  unconditionally overwritten on every pop of `node`, and a stale (worse)
+  duplicate for the same node always pops strictly after the correct/best
+  one (lower `g` implies lower `f` for a fixed node, so it heap-pops
+  first) -- meaning whichever pop happens *last* before termination wins,
+  which is not guaranteed to be the optimal one. The algorithm still
+  terminates on the first (optimal-`g`) pop of `dst`, but the path
+  reconstructed by walking `back[]` from `dst` can pass through an
+  intermediate node whose `back[]` got clobbered by a later, worse
+  duplicate pop, producing a *valid but non-shortest* path -- a previously
+  undocumented, plausible contributor to inflated space-time volume, not
+  just a speed issue. Standard fix is a one-line guard right after the pop
+  (`if g > seen.get(p, ...): continue`), but implementing it changes actual
+  routing outcomes (some paths would get shorter), so per the standing rule
+  this waits for the unified debugging pass, not a Python-side patch now --
+  logged here as a concrete input for the Rust port's A* design instead
+  (where bidirectional search is also worth considering, given src/dst are
+  both known at call time).

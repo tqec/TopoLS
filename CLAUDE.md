@@ -86,9 +86,15 @@ where and why each consolidation was safe. `docs/ARCHITECTURE.md`'s file
 paths/line numbers are now stale (flagged at its top) -- the algorithm
 descriptions are still accurate, only locations changed.
 
-Golden values: `bv_16`/`dj_16`/`ghz_16`/`grover_6` captured; `qft_16`,
-`qpe_16`, `vqe_16`, `wstate_16`, `qaoa_16` still pending (background
-capture job in flight, multi-hour).
+Golden values: all 9 benchmarks now captured (full experiment, job 4446).
+`bv_16`/`dj_16`/`ghz_16` are solid (identical across ~6 repeated runs).
+`grover_6`/`qft_16`/`qpe_16`/`qaoa_16` are confirmed **non-deterministic**
+run-to-run (grover_6 measured twice with identical config, got two
+different answers) -- attributed to `mcts()`'s wall-clock `time_bound` and
+A*'s 100ms wall-clock timeout, not to any refactor step. See
+`docs/REFACTOR_LOG.md`'s "Full 9-benchmark experiment" entry and
+`tests/test_regression.py`'s `GOLDENS` comment before trusting these four
+as strict pass/fail gates.
 
 **Step 1b done**: `embedding/state.py`'s `next_state` has been fully
 deduplicated (~1570 -> 1208 lines) into 5 shared helpers:

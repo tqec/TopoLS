@@ -150,13 +150,20 @@ def route_single_T_to_boundary(
         for dx, dy, dz in axis_offsets[ori]:
             occ_tmp.add((x + dx, y + dy, z + dz))
 
+    # Allow traversal into the exit point. This is hoisted out of the loop
+    # below (Tier 1 -- see docs/REFACTOR_LOG.md "Step 2c" entry): each
+    # `target` is already confirmed absent from `occ_tmp` by the `continue`
+    # check, so removing it there was always a no-op, and removing
+    # `exit_point` is idempotent across iterations -- the per-iteration
+    # `set(occ_tmp) - {exit_point, target}` copy was provably equivalent to
+    # doing this once. `shortest_path` never mutates its `occupied` arg, so
+    # the same set can be reused across all candidate targets.
+    occ_tmp.discard(exit_point)
+
     # Try routing to each candidate boundary target
     for target in region:
         if target in occ_tmp or target[2] < z_floor:
             continue
-
-        # Allow traversal into exit and target
-        occ_tmp = set(occ_tmp) - {exit_point, target}
 
         path = shortest_path(exit_point, target, occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, ceiling_z=ceiling_z)
         if path is not None:

@@ -1,0 +1,11 @@
+Decoupled correctness check for bv_16, iters=30 (fixed), time_limit effectively disabled.
+
+=== run A: ENABLE_INLOOP_REWARD_CACHE = False ===
+Embedding progress:
+
+=== run B: ENABLE_INLOOP_REWARD_CACHE = True ===
+Embedding progress:
+
+in-loop cache: 66/70 terminal-node visits were cache hits (94.3%)
+
+=== RESULT: IDENTICAL (fix is behavior-preserving at fixed iters) ===

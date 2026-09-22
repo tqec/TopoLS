@@ -53,19 +53,37 @@ BENCH_CONFIGS = {
 
 # Golden (x_length, y_length, z_length, volume). `None` = not yet captured;
 # such benchmarks are skipped rather than asserted against a guess.
-# Captured 2026-09-21 from a clean run of the pre-refactor code (see
-# docs/REFACTOR_LOG.md). bv_16/dj_16/ghz_16 are also cross-checked against
-# the paper's Table 2 "Full-Opt" volumes (486 / 891 / 243).
+#
+# bv_16/dj_16/ghz_16 (the `fast` subset): captured 2026-09-21, reconfirmed
+# identical across ~6 independent repeated runs (pre- and post- every Step
+# 1a/1b change) -- trustworthy as exact-equality goldens. Also match the
+# paper's Table 2 "Full-Opt" volumes exactly (486 / 891 / 243).
+#
+# grover_6/qft_16/qpe_16/qaoa_16: **observed non-deterministic, not yet
+# confirmed stable**. `mcts()` runs under a wall-clock `time_bound` and A*
+# (routing/astar.py) self-aborts on a 100ms wall-clock timeout, so machine
+# load at run time measurably changes search quality for benchmarks deep
+# enough to be search-bound. Confirmed directly for grover_6: an earlier
+# capture (job 4438) got (z=656, volume=22960); this one (job 4446, same
+# CLI config, same code) got (z=663, volume=23205). The values below are
+# just the most recent measurement (job 4446, 2026-09-21), not "the"
+# correct answer -- see docs/REFACTOR_LOG.md's "Full 9-benchmark
+# experiment" entry before tightening these into a CI gate; a tolerance
+# band would be more honest than exact equality for these four.
+#
+# vqe_16/wstate_16: captured once (job 4446) and match the paper's Table 2
+# volumes exactly (4212 / 8505) -- no conflicting measurement yet, but also
+# not independently reconfirmed the way the fast subset has been.
 GOLDENS = {
     "bv_16": (9.0, 9.0, 6, 486.0),
     "dj_16": (9.0, 9.0, 11, 891.0),
     "ghz_16": (9.0, 9.0, 3, 243.0),
-    "grover_6": (5.0, 7.0, 656, 22960.0),
-    "qft_16": None,
-    "qpe_16": None,
-    "vqe_16": None,
-    "wstate_16": None,
-    "qaoa_16": None,
+    "grover_6": (5.0, 7.0, 663, 23205.0),
+    "qft_16": (9.0, 9.0, 484, 39204.0),
+    "qpe_16": (9.0, 9.0, 525, 42525.0),
+    "vqe_16": (9.0, 9.0, 52, 4212.0),
+    "wstate_16": (9.0, 9.0, 105, 8505.0),
+    "qaoa_16": (9.0, 9.0, 59, 4779.0),
 }
 
 # Benchmarks small enough to run on every regression check without Slurm

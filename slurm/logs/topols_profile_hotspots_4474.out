@@ -1,0 +1,16 @@
+== [Mon Sep 21 09:34:24 PM EDT 2026] profiling dj_16 (iters=1000, time_limit disabled) ==
+py-spy> Sampling process 200 times a second. Press Control-C to exit.
+
+py-spy> 1.00s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.13s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 11
+Space-time volume: 891.0
+Time: 11
+Space: 81.0
+Compilation time: 2922.5962896347046
+
+py-spy> Stopped sampling because process exited
+py-spy> Wrote flamegraph data to '/home/junyuzh/QEC/upgrade/TopoLS/docs/profiles/dj_16_full.svg'. Samples: 586356 Errors: 0
+== [Mon Sep 21 10:23:16 PM EDT 2026] py-spy exited with status 1; output (if any): /home/junyuzh/QEC/upgrade/TopoLS/docs/profiles/dj_16_full.svg ==

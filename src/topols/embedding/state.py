@@ -8,6 +8,12 @@ from topols.routing.boundary import route_to_ceiling, route_single_T_to_boundary
 from topols.routing.color_algebra import AXIS_OFFSETS, ORI_MAP, color_switch, edge_tracer
 from topols.embedding.ports import auto_ports
 
+# Tier 1 (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry): the routing
+# helpers below used to write `occ_tmp = set(occ).copy()`. `set(occ)`
+# already builds a brand-new independent set, so the chained `.copy()` was
+# a second, entirely redundant full copy of the occupancy set on every
+# edge-routing attempt. Removed at all 7 call sites -- behavior-identical.
+
 
 def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, input_ports, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
     """Route every input port of a newly-placed standard/S/T node (types
@@ -31,7 +37,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
     ori_flag = 0
     for input in input_ports:
 
-        occ_tmp = set(occ).copy()
+        occ_tmp = set(occ)
         occ_tmp.remove(pos[input])
         occ_tmp.remove(coord)
 
@@ -136,7 +142,7 @@ def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_nod
     dst = pos[dst_node]
     ori_input = ori[src_node]
 
-    occ_tmp = set(occ).copy()
+    occ_tmp = set(occ)
     occ_tmp.remove(src)
     occ_tmp.remove(dst)
 
@@ -174,7 +180,7 @@ def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     ori_output = ori[dst_node]
     typ_output = 1 if dst_typ == 1 else 0
 
-    occ_tmp = set(occ).copy()
+    occ_tmp = set(occ)
     occ_tmp.remove(src)
     occ_tmp.remove(dst)
 
@@ -220,7 +226,7 @@ def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     src = pos[src_node]
     dst = pos[dst_node]
 
-    occ_tmp = set(occ).copy()
+    occ_tmp = set(occ)
     occ_tmp.remove(src)
     occ_tmp.remove(dst)
 
@@ -267,7 +273,7 @@ def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node,
     src = pos[src_node]
     dst = pos[dst_node]
 
-    occ_tmp = set(occ).copy()
+    occ_tmp = set(occ)
     occ_tmp.remove(src)
     occ_tmp.remove(dst)
 
@@ -923,7 +929,7 @@ class EmbeddingState:
 
             # General case: route idle node to its input
             else:
-                occ_tmp = set(occ).copy()
+                occ_tmp = set(occ)
                 occ_tmp.remove(pos[input])
                 occ_tmp.remove(coord)
 
@@ -1016,7 +1022,7 @@ class EmbeddingState:
                     del idle_place[input]
 
                 # Prepare temporary occupancy map for routing
-                occ_tmp = set(occ).copy()
+                occ_tmp = set(occ)
                 occ_tmp.remove(pos[input])
                 occ_tmp.remove(coord)
 

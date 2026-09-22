@@ -1,11 +1,18 @@
 import heapq
 import time
 
-from topols.geometry import add, manhattan
-
 # ---------------------------------------------------------------------------
 # Shortest Manhattan path avoiding occupied cells (A* with tie‑breaking)
 # ---------------------------------------------------------------------------
+#
+# Tier 1 (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry): `add()`/
+# `manhattan()` (topols/geometry.py) are inlined directly in the loops below
+# instead of imported and called. Both are one-line tuple-arithmetic
+# functions with no side effects; profiling (docs/profiles/dj_16_full.svg,
+# docs/profiles/grover_6_prod.svg) showed them consuming ~12-15% of total
+# runtime purely from Python function-call overhead, since these three A*
+# variants are the single most-called code path in the whole compiler.
+# Identical arithmetic, just no call frame -- behavior-preserving.
 
 directions = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]
 
@@ -35,7 +42,7 @@ def shortest_path_with_zmax(
     start_time = time.time()
 
     # Initial A* heuristic (Manhattan distance in 3D)
-    h = manhattan(src, dst)
+    h = abs(src[0]-dst[0]) + abs(src[1]-dst[1]) + abs(src[2]-dst[2])
 
     # Priority queue entries are (f = g + h, g = path cost, node, parent)
     open_q = [(h, 0, src, None)]
@@ -64,7 +71,7 @@ def shortest_path_with_zmax(
 
         # Explore neighboring grid nodes
         for d in directions:
-            q = add(p, d)
+            q = (p[0]+d[0], p[1]+d[1], p[2]+d[2])
 
             # Hard constraints: occupied space, floor/ceiling limits, and XY bounds
             if (
@@ -94,7 +101,7 @@ def shortest_path_with_zmax(
             g2 = g + 1
             if g2 < seen.get(q, 1e9):
                 seen[q] = g2
-                heapq.heappush(open_q, (g2 + manhattan(q, dst), g2, q, p))
+                heapq.heappush(open_q, (g2 + abs(q[0]-dst[0]) + abs(q[1]-dst[1]) + abs(q[2]-dst[2]), g2, q, p))
 
         # Safety cap to prevent pathological exploration
         count = count + 1
@@ -140,7 +147,7 @@ def shortest_path(
     start_time = time.time()
 
     # Initial A* heuristic
-    h = manhattan(src, dst)
+    h = abs(src[0]-dst[0]) + abs(src[1]-dst[1]) + abs(src[2]-dst[2])
 
     # Priority queue entries: (f = g + h, g, node, parent)
     open_q = [(h, 0, src, None)]
@@ -168,7 +175,7 @@ def shortest_path(
             return path
 
         for d in directions:
-            q = add(p, d)
+            q = (p[0]+d[0], p[1]+d[1], p[2]+d[2])
 
             # Spatial constraints: occupancy, floor, and XY bounds
             if (
@@ -198,7 +205,7 @@ def shortest_path(
             g2 = g + 1
             if g2 < seen.get(q, 1e9):
                 seen[q] = g2
-                heapq.heappush(open_q, (g2 + manhattan(q, dst), g2, q, p))
+                heapq.heappush(open_q, (g2 + abs(q[0]-dst[0]) + abs(q[1]-dst[1]) + abs(q[2]-dst[2]), g2, q, p))
 
         # Hard cap to avoid excessive exploration
         count = count + 1
@@ -232,7 +239,7 @@ def shortest_path_base(
     start_time = time.time()
 
     # Initial heuristic based on Manhattan distance in the plane
-    h = manhattan(target_1, target_2)
+    h = abs(target_1[0]-target_2[0]) + abs(target_1[1]-target_2[1]) + abs(target_1[2]-target_2[2])
 
     # Priority queue entries: (f = g + h, g, node, parent)
     open_q = [(h, 0, target_1, None)]
@@ -261,7 +268,7 @@ def shortest_path_base(
 
         # Explore neighbors on the same z-layer
         for d in directions_:
-            q = add(p, d)
+            q = (p[0]+d[0], p[1]+d[1], p[2]+d[2])
 
             # Blocked by occupied cells, walls, or XY boundary constraints
             if (
@@ -277,7 +284,7 @@ def shortest_path_base(
             g2 = g + 1
             if g2 < seen.get(q, 1e9):
                 seen[q] = g2
-                heapq.heappush(open_q, (g2 + manhattan(q, target_2), g2, q, p))
+                heapq.heappush(open_q, (g2 + abs(q[0]-target_2[0]) + abs(q[1]-target_2[1]) + abs(q[2]-target_2[2]), g2, q, p))
 
         # Safety cap to prevent excessive exploration
         count = count + 1

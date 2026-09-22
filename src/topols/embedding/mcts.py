@@ -2,12 +2,48 @@ import math
 import time
 
 # ---------------------------------------------------------------------------
+# Opt-in diagnostic hook (Phase 2, Step 2a -- see
+# /home/junyuzh/.claude/plans/snappy-growing-aurora.md and
+# docs/REFACTOR_LOG.md). Off by default (STATS_SINK is None): zero overhead,
+# zero behavior change for production runs. A diagnostic script sets
+# `topols.embedding.mcts.STATS_SINK = some_list` before calling `mcts()` to
+# record, per call, whether the loop was cut off by the wall-clock
+# `time_limit` ("search-bound") or exhausted its `iters` budget
+# ("iters-bound") -- this determines which benchmarks are safe to use as
+# exact-equality gates for optimizations that touch the timed loop.
+STATS_SINK = None
+
+# Separate opt-in sink for the cache-hit-rate diagnostic below (kept apart
+# from STATS_SINK so the two don't get mixed into one list with
+# differently-shaped dicts -- profile_boundedness.py indexes STATS_SINK
+# entries by `["search_bound"]` unconditionally).
+CACHE_STATS_SINK = None
+
+# Tier 1 in-loop reward-cache shortcut (Phase 2 -- see
+# docs/REFACTOR_LOG.md's "Step 2c, Tier 1 item 4" entry). Unlike Tier 0
+# below, this DOES skip work inside the timed loop (it avoids calling
+# rollout()/reward() again on an already-terminal node Selection revisits),
+# so it can change how many iterations complete before `time_limit` for
+# search-bound calls. Kept as a module toggle (default on) so a decoupled
+# A/B comparison can flip it off without needing two copies of the code --
+# see docs/profile_inloop_cache.py.
+ENABLE_INLOOP_REWARD_CACHE = True
+
+# Tier 0 optimization (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry):
+# sentinel for "no cached reward yet" on a tree node. Must be a distinct
+# object, not `None` -- `EmbeddingState.reward()` legitimately returns
+# `None` for a terminal state whose ceiling/T-gate routing failed, so
+# overloading `None` as "not cached" would silently disable caching for
+# exactly the states that fail routing and get revisited.
+_UNSET = object()
+
+# ---------------------------------------------------------------------------
 # MCTS node in the search tree
 # ---------------------------------------------------------------------------
 
 class MCTSNode:
     __slots__ = ("state","parent","children",
-                 "visits","value","untried","try_flag", "id")
+                 "visits","value","untried","try_flag", "id", "cached_reward")
 
     def __init__(self, state, parent=None, move_num=None, block_switch=False, ceiling_switch=False):
         self.state = state
@@ -16,6 +52,7 @@ class MCTSNode:
         self.visits = 0
         self.value = 0.0
         self.untried = state.moves(num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
+        self.cached_reward = _UNSET
 
     def uct_select_child(self, c=0.7):
         best = None
@@ -90,6 +127,8 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
 
     for i in range(iters):
         if time.time() > end_time:
+            if STATS_SINK is not None:
+                STATS_SINK.append({"iters_completed": i, "iters_requested": iters, "search_bound": True, "layer": layer})
             break
 
         node = root
@@ -115,9 +154,33 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
 
         # 3. Simulation
         t0 = time.time()
-        reward = rollout(node.state, layer=layer, block_switch=block_switch, ceiling_switch=ceiling_switch, length=length)
+        if (ENABLE_INLOOP_REWARD_CACHE
+                and node.cached_reward is not _UNSET
+                and node.state.is_terminal()):
+            # Tier 1 (see module docstring above): Selection walked back
+            # down to a terminal leaf whose reward we already computed on
+            # this exact, unmutated state object -- reuse it instead of
+            # paying for rollout()'s call into reward() again. Equivalent
+            # to what `rollout(node.state, ...)` would return (it would
+            # immediately hit `if cur.is_terminal(): return cur.reward(...)`
+            # with `cur is node.state`, unchanged), just without redoing
+            # the routing work.
+            reward = node.cached_reward
+            rollout_state = node.state
+            if CACHE_STATS_SINK is not None:
+                CACHE_STATS_SINK.append({"cache_hit": True, "layer": layer})
+        else:
+            reward = rollout(node.state, layer=layer, block_switch=block_switch, ceiling_switch=ceiling_switch, length=length)
+            if reward != -1e9:
+                reward, rollout_state = reward
+                # Tier 0: cache for the post-loop retrieval below (and, if
+                # enabled, for a future in-loop revisit) -- a plain
+                # attribute write, doesn't skip anything this iteration.
+                if node.state is rollout_state:
+                    node.cached_reward = reward
+            if CACHE_STATS_SINK is not None and node.state.is_terminal():
+                CACHE_STATS_SINK.append({"cache_hit": False, "layer": layer})
         if reward != -1e9:
-            reward, rollout_state = reward
             if reward > best_rollout:
                 best_rollout = reward
                 best_rollout_state = rollout_state
@@ -134,6 +197,10 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
             node = node.parent
         t1 = time.time()
         time_bac = time_bac + (t1-t0)
+    else:
+        # Loop completed without `break` -- iters-bound, not search-bound.
+        if STATS_SINK is not None:
+            STATS_SINK.append({"iters_completed": iters, "iters_requested": iters, "search_bound": False, "layer": layer})
 
     # retrieve best completed embedding seen
     best_state = None
@@ -142,12 +209,18 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
     while stack:
         n = stack.pop()
         if n.state.is_terminal():
-            r = n.state.reward(length=length)
-            if r is not None:
-                r, _, _, _ = r
-                if r > best_val:
-                    best_val = r
-                    best_state = n.state
+            # Tier 0: reuse the reward cached during the loop above instead
+            # of recomputing it (reward() does real routing work -- this is
+            # strictly post-loop, so it cannot affect how many iterations
+            # ran).
+            if n.cached_reward is not _UNSET:
+                r_val = n.cached_reward
+            else:
+                r = n.state.reward(length=length)
+                r_val = r[0] if r is not None else None
+            if r_val is not None and r_val > best_val:
+                best_val = r_val
+                best_state = n.state
         stack.extend(n.children)
 
     if best_state is None:

@@ -28,6 +28,24 @@ and reproducible.
 - `run_tutorial_notebook.slurm` — executes `docs/tutorial.ipynb` via
   `jupyter nbconvert --execute`, writing the executed copy to
   `docs/tutorial_executed.ipynb` (the original notebook is left untouched).
+- `run_regression_fast.slurm` / `run_regression_full.slurm` /
+  `capture_baselines.slurm` — the `tests/test_regression.py` regression
+  suite (see that file's docstring) and its one-off baseline-capture
+  helper.
+- `run_full_experiment.slurm` — reproduces `docs/exp.py`'s `commands_1`
+  ("Full optimization") block exactly, all 9 benchmarks, appending to
+  `docs/result/topols/result_f.csv`. Multi-hour job.
+- `profile_boundedness.slurm` — Phase 2 Step 2a: runs
+  `docs/profile_boundedness.py` (production CLI flags) on `bv_16`/`dj_16`/
+  `ghz_16`/`grover_6`, reporting what fraction of `mcts()` calls were cut
+  off by the wall-clock `time_limit` ("search-bound") vs. exhausted their
+  `iters` budget ("iters-bound") — determines which benchmarks are safe as
+  exact-equality gates for optimizations touching `mcts()`'s timed loop.
+- `profile_hotspots.slurm` — Phase 2 Step 2b: `py-spy` flamegraphs of
+  `docs/prog.py` on `dj_16`/`grover_6`, with `-t` set enormous and `-i` set
+  small so every call is iters-bound (decoupled from the wall-clock
+  confound above). Output: `docs/profiles/*.svg`. Not the production CLI
+  config — for hotspot magnitude only, not golden-value comparison.
 
 ## Usage
 
