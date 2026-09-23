@@ -118,6 +118,16 @@ block_dic = circuit_slicing(graph, block_info, idx_to_row)
 if zx_opt == 1 and spread_num == 0:
     zx_optimization(graph, block_dic)
 
+# H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated entry):
+# H never needs its own physical embedding cube -- at render time
+# (export/bgraph.py's merge_idle_paths) an H-node's own position is
+# discarded entirely, only the color transition between its two real
+# neighbors survives. Dissolve H-boxes out of the graph now (after
+# zx_optimization, so we dissolve whatever H's zx_optimization left
+# behind) and record which edges carried them; downstream routing flips
+# curr_type right before any ORI_MAP lookup for a flagged edge instead.
+hadamard_edges = dissolve_hadamard_boxes(graph)
+
 # ============================================================
 # 5. Layer labeling and block-layer mapping
 # ============================================================
@@ -138,7 +148,7 @@ layer_to_block = layer_to_block_map(layer_labels, block_dic)
 
 # Insert idling nodes to fill gaps between layers
 # (ensures temporal continuity)
-layer_labels = idling_nodes_insertion(graph, layer_labels)
+layer_labels = idling_nodes_insertion(graph, layer_labels, hadamard_edges)
 
 # Extract input/output nodes for later analysis or visualization
 io_info = extract_io_nodes(graph)
@@ -148,7 +158,7 @@ io_info = extract_io_nodes(graph)
 # ============================================================
 
 time0 = time.time()
-best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num)
+best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num, hadamard_edges=hadamard_edges, io_info=io_info)
 time1 = time.time()
 x_length, y_length, z_length, volume = calculate_space_time(pos_hist, path_hist, best_state.x_min_floor, best_state.x_max_floor, best_state.y_min_floor, best_state.y_max_floor)
 space = x_length * y_length

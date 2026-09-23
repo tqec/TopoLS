@@ -1,0 +1,13 @@
+Executing hs_1 benchmark.
+Embedding progress:
+x_length: 3.0 y_length: 3.0 z_length: 14
+Space-time volume: 126.0
+Time: 14
+Space: 9.0
+Compilation time: 0.21388864517211914
+Interactive pipe diagram written to: result/visualization/hs_1_interactive.html
+input_node=0 pos=(0, 0, 0) ori=i type=0
+output_node=20 pos=(0, 0, 14) ori=i type=0
+input tqec boundary color = ZXX
+output tqec boundary color = ZXX
+PARITY CHECK PASSED: input/output boundary colors match (10 H's = even = no net flip, as expected)

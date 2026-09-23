@@ -1,0 +1,11 @@
+Executing cnot_s_cnot_h_2 benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 3.0 z_length: 58
+Space-time volume: 870.0
+Time: 58
+Space: 15.0
+Compilation time: 194.44983577728271
+Interactive pipe diagram written to: result/visualization/cnot_s_cnot_h_2_interactive.html
+QASM H-gate count: 20
+Rendered yellow-collar count: 16
+SAFETY CHECK FAILED

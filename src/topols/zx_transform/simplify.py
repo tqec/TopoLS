@@ -27,6 +27,37 @@ def hadamard_box(graph):
         graph.add_edge((u, hbox), zx.EdgeType.SIMPLE)
         graph.add_edge((hbox, v), zx.EdgeType.SIMPLE)
 
+
+def dissolve_hadamard_boxes(graph):
+    """H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
+    entry): an H-box never needs its own physical embedding cube -- at
+    render time (export/bgraph.py's merge_idle_paths) an H-node's own
+    position is discarded entirely, only the color transition between its
+    two real neighbors survives. So instead of embedding H as a node, we
+    remove each H_BOX vertex here (reconnecting its two neighbors
+    directly) and record the edge it used to sit on in `hadamard_edges`.
+    Downstream routing (embedding/state.py, embedding/fallback.py) flips
+    `curr_type` right before any ORI_MAP lookup for an edge found in this
+    set, which is mathematically equivalent to actually routing through
+    an H.
+
+    Must run after `hadamard_box` (so Hadamards are explicit vertices to
+    remove) and after `zx_optimization` (so the H_BOX's final neighbors
+    are the ones idling/layering will actually see).
+    """
+    hadamard_edges = set()
+    for v in list(graph.vertices()):
+        if graph.type(v) != zx.VertexType.H_BOX:
+            continue
+        neighbors = list(graph.neighbors(v))
+        assert len(neighbors) == 2, f"H_BOX vertex {v} has {len(neighbors)} neighbors, expected 2"
+        u, w = neighbors
+        graph.remove_vertex(v)
+        graph.add_edge((u, w))
+        hadamard_edges.add(frozenset((u, w)))
+    return hadamard_edges
+
+
 def delete_singular_nodes(graph):
     singular_nodes = [
         v for v in graph.vertices()

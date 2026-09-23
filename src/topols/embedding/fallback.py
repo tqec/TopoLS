@@ -1,13 +1,14 @@
 from topols.routing.astar import shortest_path_base
 from topols.routing.boundary import lifting_path, vertical_z_path
 from topols.routing.color_algebra import ORI_MAP, edge_tracer
+from topols.embedding.state import _hadamard_step
 
 # ---------------------------------------------------------------------------
 # Basic Embedding Function
 # ---------------------------------------------------------------------------
 
 # This function performs a deterministic "baseline" embedding procedure
-def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_h_track, idle_place, t_track, node_type, input_connect, inter_connect, output_connect, order):
+def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_h_track, idle_place, t_track, node_type, input_connect, inter_connect, output_connect, order, hadamard_edges):
 
     # ------------------------------------------------------------
     # Initialize mutable containers
@@ -260,14 +261,14 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                 idle_h_track[node] = [
                                 start_node,
                                 tuple(path[::-1] + list(cur_path)[1:]),
-                                h_count
+                                _hadamard_step(hadamard_edges, h_count, node, input_connect[node][0])
                                 ]
                 del idle_h_track[input_connect[node][0]]
             else:
                 idle_h_track[node] = [
                                 input_connect[node][0],
                                 tuple(path[::-1]),
-                                0
+                                _hadamard_step(hadamard_edges, 0, node, input_connect[node][0])
                                 ]
             idle_place[node] = (pos[0], pos[1], z_ceil)
 

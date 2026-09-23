@@ -15,7 +15,46 @@ from topols.embedding.ports import auto_ports
 # edge-routing attempt. Removed at all 7 call sites -- behavior-identical.
 
 
-def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, input_ports, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
+# ---------------------------------------------------------------------------
+# H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated entry): H
+# no longer exists as its own embedded node (zx_transform.simplify's
+# dissolve_hadamard_boxes removes it before layer_labeling ever runs,
+# recording which edge it used to sit on in `hadamard_edges`). Routing a
+# dissolved-H edge is mathematically equivalent to flipping `curr_type`
+# right before it feeds an ORI_MAP lookup -- one shared helper so every
+# call site does this the same way.
+#
+# `_hadamard_flip` is for edges between two *already-real* nodes (both
+# endpoints solid types 0/1/4/5, or a same-layer inter_connect edge) --
+# these are always genuine, unsplit graph edges, so a direct
+# frozenset-membership check against `hadamard_edges` is exact.
+#
+# `_hadamard_step` is for idle/H chains (idle_h_track): idling_nodes_
+# insertion always moves a dissolved-H flag onto the *first* new edge of
+# a chain split (zx_transform.layering._move_hadamard_flag), so the flag
+# can only ever appear on the edge nearest a chain's start_node, never on
+# the closing edge nearest the chain's other (real-node) end. It therefore
+# has to be picked up incrementally, one edge at a time, as the chain is
+# walked/extended -- exactly mirroring the existing `h_count` mechanism
+# (both count mod 2). `_route_input_ports`'s type-(2,3) branch and the
+# other chain-aware helpers below rely on `h_count` already carrying this,
+# so they deliberately do *not* also call `_hadamard_flip` on their closing
+# edge -- that edge is always a synthetic idle-insertion artifact and can
+# never itself be in `hadamard_edges`.
+
+def _hadamard_flip(hadamard_edges, curr_type, node_a, node_b):
+    if frozenset((node_a, node_b)) in hadamard_edges:
+        return 1 - curr_type
+    return curr_type
+
+
+def _hadamard_step(hadamard_edges, h_count, node_a, node_b):
+    if frozenset((node_a, node_b)) in hadamard_edges:
+        return h_count + 1
+    return h_count
+
+
+def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, input_ports, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, hadamard_edges):
     """Route every input port of a newly-placed standard/S/T node (types
     0, 1, 4, 5 -- the three call sites differ only in `target_type`: the
     node's own type for the standard-cube case, or the constant 0 for S/T,
@@ -56,6 +95,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
 
             if typ[input] in (0, 1):
                 curr_type, last_dir = edge_tracer(tuple(path)[::-1], (ori[input], typ[input]))
+                curr_type = _hadamard_flip(hadamard_edges, curr_type, node, input)
                 ori[node] = ORI_MAP[(last_dir, curr_type, target_type)]
                 ori_flag = 1
             elif typ[input] in (2, 3):
@@ -72,6 +112,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                 ori_flag = 1
             elif typ[input] in (4, 5):
                 curr_type, last_dir = edge_tracer(tuple(path)[::-1], (ori[input], 0))
+                curr_type = _hadamard_flip(hadamard_edges, curr_type, node, input)
                 ori[node] = ORI_MAP[(last_dir, curr_type, target_type)]
                 ori_flag = 1
 
@@ -86,6 +127,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
 
             if typ[input] in (0, 1):
                 curr_type, last_dir = edge_tracer(tuple(path)[::-1], (ori[input], typ[input]))
+                curr_type = _hadamard_flip(hadamard_edges, curr_type, node, input)
             elif typ[input] in (2, 3):
                 start_node, path_to_input, h_count = track[input]
                 tol_path = path + list(path_to_input)[1:]
@@ -98,6 +140,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                 del track[input]
             elif typ[input] in (4, 5):
                 curr_type, last_dir = edge_tracer(tuple(path)[::-1], (ori[input], 0))
+                curr_type = _hadamard_flip(hadamard_edges, curr_type, node, input)
 
             if ori[node] != ORI_MAP[(last_dir, curr_type, target_type)]:
                 path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -134,7 +177,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
 # points) and return the routed path, or None on routing failure -- matching
 # next_state()'s existing "return None to abort placement" convention.
 
-def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ_input, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node):
+def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ_input, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
     """dst_typ in (0,1,4,5), src_node is itself a standard/S/T node with a
     directly-known orientation (no idle/Hadamard chain to resolve)."""
 
@@ -159,6 +202,7 @@ def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_nod
         return None
 
     curr_type, last_dir = edge_tracer(tuple(path)[::-1], (ori_input, typ_input))
+    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori[dst_node] != ORI_MAP[(last_dir, curr_type, 1 if dst_typ == 1 else 0)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -171,7 +215,7 @@ def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_nod
     return path
 
 
-def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node):
+def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
     """dst_typ in (0,1,4,5), src_node is idle/Hadamard: its orientation must
     be resolved by replaying the idle_h_track chain back to a real cube."""
 
@@ -205,6 +249,7 @@ def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_n
 
     if h_count % 2 == 1:
         curr_type = 1 - curr_type
+    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori_output != ORI_MAP[(last_dir, curr_type, typ_output)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -219,7 +264,7 @@ def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     return path
 
 
-def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node):
+def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
     """dst_typ in (2,3), src_node is a standard/S/T node: dst's chain is
     resolved and compared against src's own (already-known) orientation."""
 
@@ -252,6 +297,7 @@ def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_n
 
     if h_count % 2 == 1:
         curr_type = 1 - curr_type
+    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori[src_node] != ORI_MAP[(last_dir, curr_type, target_type)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -266,7 +312,7 @@ def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     return path
 
 
-def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node):
+def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
     """Both endpoints are idle/Hadamard: merge their two chains and check
     the combined color/orientation against the source chain's origin."""
 
@@ -297,6 +343,7 @@ def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node,
 
     if h_count % 2 == 1:
         curr_type = 1 - curr_type
+    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori[start_node_src] != ORI_MAP[(last_dir, curr_type, 1 if typ[start_node_src] == 1 else 0)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -335,7 +382,7 @@ class EmbeddingState:
         "y_min_floor", "y_max_floor",
         "idle_h_track", "idle_place", "t_track",
         "node_type", "input_connect", "inter_connect", "output_connect",
-        "order", "z_length", "order_idx", "vol"
+        "order", "z_length", "hadamard_edges", "order_idx", "vol"
     )
 
     def __init__(
@@ -359,6 +406,7 @@ class EmbeddingState:
         output_connect,
         order,
         z_length,
+        hadamard_edges,
         order_idx=0
     ):
         """
@@ -436,6 +484,11 @@ class EmbeddingState:
 
         # z-extent introduced by previous embedding layers
         self.z_length = z_length
+
+        # Set of frozenset((u, v)) edges that carried a dissolved H-box
+        # (see zx_transform.simplify.dissolve_hadamard_boxes) -- routing
+        # flips curr_type right before any ORI_MAP lookup for such an edge.
+        self.hadamard_edges = hadamard_edges
 
         # Index of the next node to embed
         self.order_idx = order_idx
@@ -879,7 +932,7 @@ class EmbeddingState:
         if typ[node] in (0, 1):
 
             # First, route connections to input ports
-            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], typ[node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor)
+            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], typ[node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, self.hadamard_edges)
             if result is None:
                 return None
             _, _, input = result
@@ -901,7 +954,7 @@ class EmbeddingState:
                     # --------------------------------------------------
                     if dst_typ in (0, 1, 4, 5):
 
-                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -911,7 +964,7 @@ class EmbeddingState:
                     # --------------------------------------------------
                     if dst_typ in (2, 3):
 
-                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -937,7 +990,8 @@ class EmbeddingState:
                     del idle_place[input]
 
                 # Transfer idle/H tracking information
-                track[node] = track[input]
+                start_node, cur_path, h_count = track[input]
+                track[node] = [start_node, cur_path, _hadamard_step(self.hadamard_edges, h_count, node, input)]
                 del track[input]
 
             # General case: route idle node to its input
@@ -970,7 +1024,7 @@ class EmbeddingState:
                 # Update idle/H tracking depending on input type
                 if typ[input] in (0, 1, 4, 5):
                     # New idle chain starts from a normal node
-                    track[node] = [input, tuple(path), 0]
+                    track[node] = [input, tuple(path), _hadamard_step(self.hadamard_edges, 0, node, input)]
 
                 elif typ[input] in (2, 3):
                     # Extend existing idle/H chain
@@ -978,7 +1032,7 @@ class EmbeddingState:
                     track[node] = [
                         start_node,
                         tuple(path + list(cur_path)[1:]),
-                        h_count
+                        _hadamard_step(self.hadamard_edges, h_count, node, input)
                     ]
                     del track[input]
 
@@ -1006,7 +1060,7 @@ class EmbeddingState:
                         # Case 1: destination is a z / x / S / T node
                         if dst_typ in (0, 1, 4, 5):
 
-                            path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                            path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                             if path is None:
                                 return None
                             paths.append(tuple(path))
@@ -1014,7 +1068,7 @@ class EmbeddingState:
                         # Idle ↔ Idle / Hadamard node
                         if dst_typ in (2, 3):
 
-                            path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                            path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                             if path is None:
                                 return None
                             paths.append(tuple(path))
@@ -1082,7 +1136,7 @@ class EmbeddingState:
 
                     if dst_typ in (0, 1, 4, 5):
 
-                        path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -1090,7 +1144,7 @@ class EmbeddingState:
                     # Hadamard → idle / Hadamard node
                     if dst_typ in (2, 3):
 
-                        path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -1119,14 +1173,14 @@ class EmbeddingState:
 
                     if dst_typ in (0, 1, 4, 5):
 
-                        path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
 
                     if dst_typ in (2, 3):
 
-                        path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -1137,7 +1191,7 @@ class EmbeddingState:
 
         elif typ[node] == 4:
 
-            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor)
+            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, self.hadamard_edges)
             if result is None:
                 return None
             path, occ_tmp, input = result
@@ -1180,14 +1234,14 @@ class EmbeddingState:
 
                     if dst_typ in (0, 1, 4, 5):
 
-                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
 
                     if dst_typ in (2, 3):
 
-                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
@@ -1198,7 +1252,7 @@ class EmbeddingState:
 
         elif typ[node] == 5:
 
-            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor)
+            result = _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, self.input_connect[node], 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, self.hadamard_edges)
             if result is None:
                 return None
             _, _, input = result
@@ -1215,17 +1269,17 @@ class EmbeddingState:
 
                     if dst_typ in (0, 1, 4, 5):
 
-                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
 
                     if dst_typ in (2, 3):
 
-                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, 0, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
                         if path is None:
                             return None
                         paths.append(tuple(path))
 
         return EmbeddingState(embed_node_pos=pos, embed_node_ori=ori, embed_node_type=typ, embed_path=tuple(paths), occupied=occ, z_floor=self.z_floor, x_min_floor=self.x_min_floor, x_max_floor=self.x_max_floor, y_min_floor=self.y_min_floor, y_max_floor=self.y_max_floor, idle_h_track=track, idle_place=idle_place, t_track=t_track,
-                 node_type=self.node_type, input_connect=self.input_connect, inter_connect=self.inter_connect, output_connect=self.output_connect, order=self.order, z_length=self.z_length, order_idx=self.order_idx+1)
+                 node_type=self.node_type, input_connect=self.input_connect, inter_connect=self.inter_connect, output_connect=self.output_connect, order=self.order, z_length=self.z_length, hadamard_edges=self.hadamard_edges, order_idx=self.order_idx+1)

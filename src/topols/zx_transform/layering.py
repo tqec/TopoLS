@@ -5,6 +5,23 @@ from collections import deque
 # layer partitioning for ZX graphs
 # ---------------------------------------------------------------------------
 
+def _move_hadamard_flag(hadamard_edges, old_edge, new_edge):
+    """H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
+    entry): idling-node insertion splits one graph edge (u, v) into a
+    chain u - idle_1 - ... - idle_n - v. If (u, v) carried a dissolved
+    H-box (i.e. is in `hadamard_edges`), the flag has to move onto exactly
+    one of the new edges -- never both, and it doesn't matter which end,
+    per the color-algebra invariant that a single flip anywhere on the
+    chain reproduces the same net effect. `new_edge` should be the first
+    new edge created in the split (an arbitrary but fixed choice).
+    """
+    if hadamard_edges is None:
+        return
+    old_key = frozenset(old_edge)
+    if old_key in hadamard_edges:
+        hadamard_edges.discard(old_key)
+        hadamard_edges.add(frozenset(new_edge))
+
 def layer_labeling(graph, initial_nodes, block_dic):
     """
     Label layers block by block. The starting label for each block is the maximum label
@@ -132,7 +149,7 @@ def layer_labeling_block_vanilla(graph, block_range):
 # Insert idling nodes to ensure consecutive layers
 # ---------------------------------------------------------------------------
 
-def idling_nodes_insertion(graph, layer_labels):
+def idling_nodes_insertion(graph, layer_labels, hadamard_edges=None):
     """
     For every edge in the graph, if the layer labels of the two nodes are not consecutive,
     insert idling nodes (green, phase 0) so that every neighbor pair has consecutive layers.
@@ -166,6 +183,7 @@ def idling_nodes_insertion(graph, layer_labels):
         num_idling = abs(end_layer - start_layer) - 1
 
         prev = start
+        first_new_edge = None
         for idx, l in enumerate(range(start_layer + 1, end_layer)):
             # Uniform interpolation for the row value
             row = row_start + (row_end - row_start) * (idx + 1) / (num_idling + 1)
@@ -173,9 +191,12 @@ def idling_nodes_insertion(graph, layer_labels):
             graph.set_phase(idle_v, 0)
             layer_labels[idle_v] = l
             graph.add_edge((prev, idle_v))
+            if first_new_edge is None:
+                first_new_edge = (prev, idle_v)
             prev = idle_v
         # Connect last idling node to end
         graph.add_edge((prev, end))
+        _move_hadamard_flag(hadamard_edges, (u, v), first_new_edge)
 
     return layer_labels
 
@@ -246,7 +267,7 @@ def idling_nodes_insertion_block(graph, layer_labels, block_range):
 
 
 ### Insert idling nodes to ensure consecutive layers within a specific block range vanilla
-def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
+def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range, hadamard_edges=None):
 
     max_layer = max(layer_labels.values())
     min_block_range = block_range[0]
@@ -281,6 +302,7 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
             num_idling = abs(end_layer - start_layer) - 1
 
             prev = start
+            first_new_edge = None
             for idx, l in enumerate(range(start_layer + 1, end_layer)):
                 # Uniform interpolation for the row value
                 row = row_start + (row_end - row_start) * (idx + 1) / (num_idling + 1)
@@ -288,9 +310,12 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
                 graph.set_phase(idle_v, 0)
                 layer_labels[idle_v] = l
                 graph.add_edge((prev, idle_v))
+                if first_new_edge is None:
+                    first_new_edge = (prev, idle_v)
                 prev = idle_v
             # Connect last idling node to end
             graph.add_edge((prev, end))
+            _move_hadamard_flag(hadamard_edges, (u, v), first_new_edge)
 
         elif graph.row(u) < min_block_range and (min_block_range < graph.row(v) <= max_block_range):
 
@@ -309,6 +334,7 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
             num_idling = abs(end_layer - start_layer) - 1
 
             prev = start
+            first_new_edge = None
             for idx, l in enumerate(range(start_layer + 1, end_layer)):
                 # Uniform interpolation for the row value
                 row = row_start + (row_end - row_start) * (idx + 1) / (num_idling + 1)
@@ -316,9 +342,12 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
                 graph.set_phase(idle_v, 0)
                 layer_labels[idle_v] = l
                 graph.add_edge((prev, idle_v))
+                if first_new_edge is None:
+                    first_new_edge = (prev, idle_v)
                 prev = idle_v
             # Connect last idling node to end
             graph.add_edge((prev, end))
+            _move_hadamard_flag(hadamard_edges, (u, v), first_new_edge)
 
         elif min_block_range <= graph.row(u) < max_block_range and max_block_range < graph.row(v):
 
@@ -337,6 +366,7 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
             num_idling = abs(end_layer - start_layer) - 1
 
             prev = start
+            first_new_edge = None
             for idx, l in enumerate(range(start_layer + 1, end_layer)):
                 # Uniform interpolation for the row value
                 row = row_start + (row_end - row_start) * (idx + 1) / (num_idling + 1)
@@ -344,9 +374,12 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
                 graph.set_phase(idle_v, 0)
                 layer_labels[idle_v] = l
                 graph.add_edge((prev, idle_v))
+                if first_new_edge is None:
+                    first_new_edge = (prev, idle_v)
                 prev = idle_v
             # Connect last idling node to end
             graph.add_edge((prev, end))
+            _move_hadamard_flag(hadamard_edges, (u, v), first_new_edge)
 
         elif graph.row(u) < min_block_range and max_block_range < graph.row(v):
 
@@ -361,6 +394,7 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
             num_idling = abs(end_layer - start_layer) - 1
 
             prev = start
+            first_new_edge = None
             for idx, l in enumerate(range(start_layer + 1, end_layer)):
                 # Uniform interpolation for the row value
                 row = row_start + (row_end - row_start) * (idx + 1) / (num_idling + 1)
@@ -368,9 +402,12 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range):
                 graph.set_phase(idle_v, 0)
                 layer_labels[idle_v] = l
                 graph.add_edge((prev, idle_v))
+                if first_new_edge is None:
+                    first_new_edge = (prev, idle_v)
                 prev = idle_v
             # Connect last idling node to end
             graph.add_edge((prev, end))
+            _move_hadamard_flag(hadamard_edges, (u, v), first_new_edge)
 
     return layer_labels
 

@@ -8,11 +8,12 @@ from topols.embedding.state import EmbeddingState
 from topols.embedding.mcts import mcts
 from topols.embedding.fallback import basic_embedding
 from topols.embedding.ports import auto_ports, ceiling
-from topols.zx_transform.simplify import hadamard_box, delete_singular_nodes, spread_rows
+from topols.zx_transform.simplify import hadamard_box, delete_singular_nodes, spread_rows, dissolve_hadamard_boxes
 from topols.zx_transform.layering import (
     layer_labeling_block_vanilla,
     idling_nodes_insertion_block_vanilla,
     layer_info,
+    extract_io_nodes,
 )
 
 # Phase 2 parallelization (see docs/REFACTOR_LOG.md's dated entry): the two
@@ -72,7 +73,7 @@ def _fresh_copy_for_ceiling(state):
         t_track=dict(state.t_track),
         node_type=state.node_type, input_connect=state.input_connect,
         inter_connect=state.inter_connect, output_connect=state.output_connect,
-        order=state.order, z_length=state.z_length, order_idx=state.order_idx,
+        order=state.order, z_length=state.z_length, hadamard_edges=state.hadamard_edges, order_idx=state.order_idx,
     )
 
 
@@ -202,7 +203,26 @@ def _run_seeds_parallel(jobs):
 #
 # ---------------------------------------------------------------------------
 
-def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor, seed_init_tuple=(0, 3), time_bound=3, iter_num=1000, move_num=10, length=4, dir_opt=1, spread_num=0):
+def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor, seed_init_tuple=(0, 3), time_bound=3, iter_num=1000, move_num=10, length=4, dir_opt=1, spread_num=0, hadamard_edges=None, io_info=None):
+
+    # H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
+    # entry): callers that dissolved H-boxes out of `graph` before calling
+    # this pass their `hadamard_edges` set through; older/other callers
+    # that never ran dissolve_hadamard_boxes get an empty set here, which
+    # makes every `_hadamard_flip`/`_hadamard_step` check a no-op.
+    if hadamard_edges is None:
+        hadamard_edges = set()
+
+    # Gate-by-gate fallback id-namespace fix (see docs/REFACTOR_LOG.md's
+    # dated entry): the caller's `io_info` (built once, up front, from the
+    # *outer* pre-fallback graph -- see docs/prog.py) goes stale for any
+    # qubit whose fallback-produced final node gets the `_{block}` suffix
+    # renaming below. Passing the caller's dict through here (mutated in
+    # place) lets the fallback branch patch in correctly-suffixed entries
+    # as it discovers them, so the caller's copy ends up complete without
+    # operation() needing to change its return signature.
+    if io_info is None:
+        io_info = {}
 
     seed_init, seed_step = seed_init_tuple
 
@@ -263,7 +283,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         y_min_floor=y_min_floor, y_max_floor=y_max_floor,
         idle_h_track={}, idle_place={}, t_track={},
         node_type={}, input_connect={}, inter_connect=set(), output_connect={},
-        order=[], z_length=1,
+        order=[], z_length=1, hadamard_edges=hadamard_edges,
     )
     qubit_map_pre_layer = {q: q for q in range(q_num)}
     occupied_zmax = frozenset()
@@ -295,7 +315,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         y_min_floor=y_min_floor, y_max_floor=y_max_floor,
         idle_h_track={}, idle_place={}, t_track={},
         node_type={}, input_connect={}, inter_connect=set(), output_connect={},
-        order=[], z_length=1,
+        order=[], z_length=1, hadamard_edges=hadamard_edges,
     )
     pre_ceiling_track = {}
     pre_node_type = {}
@@ -321,9 +341,23 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
         node_input_connect, node_inter_connect, node_output_connect, node_type = layer_info(graph, layer_labels, i)
         if input_mapping_flag == 1:
+            print(f"[DIAG] site A firing at layer {i}, block {block}, node_input_connect={node_input_connect}, qubit_output_map={qubit_output_map}")
             node_input_connect_new = {}
             for key in node_input_connect:
-                node_input_connect_new[key] = [qubit_output_map[graph.qubit(key)]]
+                substitute = qubit_output_map[graph.qubit(key)]
+                # Cross-block H fix (see docs/REFACTOR_LOG.md's dated
+                # entry): mirrors the matching fix in the gate-by-gate
+                # fallback's own j==1 handling -- `key`'s natural
+                # predecessor (in the outer `graph`) is about to be
+                # replaced by `substitute` (the previous, fallback-
+                # processed block's hand-off id), so any H flag on that
+                # natural edge has to move onto the substituted pair.
+                for natural_input in node_input_connect[key]:
+                    matched = frozenset((key, natural_input)) in hadamard_edges
+                    print(f"[DIAG] siteA check key={key} natural_input={natural_input} matched={matched}")
+                    if matched:
+                        hadamard_edges.add(frozenset((key, substitute)))
+                node_input_connect_new[key] = [substitute]
             node_input_connect = node_input_connect_new
             input_mapping_flag = 0
         node_output_connect = {k: v for k, v in node_output_connect.items() if v != 0}
@@ -437,7 +471,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             else:
                 ceiling_switch = False
 
-            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges)
             if block_switch:
                 for _ in range(len(priority_keys)):
                     move = root_state.moves(ceiling_switch=True)[0]
@@ -483,7 +517,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 else:
                     ceiling_switch = False
 
-                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges)
                 if block_switch:
                     for _ in range(len(priority_keys)):
                         move = root_state.moves(ceiling_switch=True)[0]
@@ -543,7 +577,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         other_keys = [k for k in keys if k not in priority_keys]
                         random.shuffle(other_keys)
                         order = priority_keys + other_keys
-                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges)
                         for _ in range(len(priority_keys)):
                             move = root_state.moves(ceiling_switch=True)[0]
                             root_state = root_state.next_state(move)
@@ -580,7 +614,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             other_keys = [k for k in keys if k not in priority_keys]
                             random.shuffle(other_keys)
                             order = priority_keys + other_keys
-                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges)
                             for _ in range(len(priority_keys)):
                                 move = root_state.moves(ceiling_switch=True)[0]
                                 root_state = root_state.next_state(move)
@@ -605,8 +639,39 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     delete_singular_nodes(graph_)
                     if spread_num > 0:
                         spread_rows(graph_, spread_num)
+                    # H-gate embedding optimization (see docs/REFACTOR_LOG.md's
+                    # dated entry): `graph_` is a *fresh* graph parsed straight
+                    # from `circuit` (new vertex IDs, unrelated to the outer
+                    # `graph`/`hadamard_edges`), so it needs its own dissolve
+                    # pass and its own edge set.
+                    hadamard_edges_ = dissolve_hadamard_boxes(graph_)
                     layer_labels_ = layer_labeling_block_vanilla(graph_, block_range)
-                    layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range)
+                    layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range, hadamard_edges_)
+                    # Kept for the j==1 cross-block hand-off check below --
+                    # that check needs `hadamard_edges_` still keyed on
+                    # graph_'s own *raw* (pre-rename) ids, since that's the
+                    # id space `layer_info(graph_, ...)` and the qubit
+                    # hand-off substitution both operate in at that point.
+                    hadamard_edges_raw = hadamard_edges_
+                    # The per-layer loop below renames every node id from
+                    # `graph_` by appending f"_{block}" (see its `suffix =
+                    # f"_{block}"` a few dozen lines down) before ever
+                    # constructing an EmbeddingState -- so `hadamard_edges_`,
+                    # still keyed on the *pre*-rename ids, has to get the same
+                    # rename now or every `_hadamard_flip`/`_hadamard_step`
+                    # membership check against it silently never matches.
+                    hadamard_edges_ = {frozenset(f"{v}_{block}" for v in edge) for edge in hadamard_edges_}
+                    # Same id-namespace problem, same fix, for io_info (see
+                    # docs/REFACTOR_LOG.md's dated entry): `extract_io_nodes`
+                    # here always reports the true *whole-circuit* input/
+                    # output per qubit (graph_ is the full circuit, not just
+                    # this block), so the suffixed entries only end up
+                    # actually used where they get merged below, filtered by
+                    # membership in this block's own embedded nodes -- which
+                    # is only ever true for the block that really does reach
+                    # that qubit's final layer.
+                    io_info_ = extract_io_nodes(graph_)
+                    io_info_ = {f"{k}_{block}": v for k, v in io_info_.items()}
                     rows_ = set(layer_labels_.values())
 
                     # Second recover the information at the begining of the block
@@ -660,15 +725,32 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             ori_hist.update(best_state.embed_node_ori)
                             type_hist.update(best_state.embed_node_type)
                             path_hist.extend(best_state.embed_path)
+                            io_info.update({k: v for k, v in io_info_.items() if k in best_state.embed_node_pos})
                             return best_state, pos_hist, ori_hist, path_hist, type_hist
 
                         if j == 1:
                             # For the first layer, we need to change the input connect
+                            print(f"[DIAG] site B firing at block {block}, node_input_connect={node_input_connect}, qubit_map_pre_layer={qubit_map_pre_layer}")
                             node_input_connect_new = {}
                             input_values = list(node_input_connect.keys())
                             for key in input_values:
                                 if graph_.qubit(key) in qubit_map_pre_layer:
-                                    node_input_connect_new[key] = [qubit_map_pre_layer[graph_.qubit(key)]]
+                                    substitute = qubit_map_pre_layer[graph_.qubit(key)]
+                                    # Cross-block H fix (see docs/REFACTOR_LOG.md's
+                                    # dated entry): `key`'s natural predecessor
+                                    # (in graph_'s own raw numbering) is about to
+                                    # be thrown away in favor of `substitute` (the
+                                    # previous block's hand-off id) -- if that
+                                    # natural edge carried a dissolved H, the flag
+                                    # has to move onto the substituted pair, since
+                                    # the natural predecessor id is never used
+                                    # again after this.
+                                    for natural_input in node_input_connect[key]:
+                                        matched = frozenset((key, natural_input)) in hadamard_edges_raw
+                                        print(f"[DIAG] siteB check key={key} natural_input={natural_input} matched={matched} hadamard_edges_raw={hadamard_edges_raw}")
+                                        if matched:
+                                            hadamard_edges_.add(frozenset((f"{key}_{block}", substitute)))
+                                    node_input_connect_new[key] = [substitute]
                                 else:
                                     finished_qubits.append(graph_.qubit(key))
                                     del node_input_connect[key]
@@ -752,7 +834,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             keys = list(node_type.keys())
                             random.shuffle(keys)
                             order = keys
-                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges_)
                             rng_snapshot = random.getstate()
                             jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, False, j, length))
 
@@ -777,7 +859,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 keys = list(node_type.keys())
                                 random.shuffle(keys)
                                 order = keys
-                                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges_)
                                 rng_snapshot = random.getstate()
                                 jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, False, j, length))
 
@@ -833,7 +915,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     other_keys = [k for k in keys if k not in priority_keys]
                                     random.shuffle(other_keys)
                                     order = priority_keys + other_keys
-                                    root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                    root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges_)
                                     for _ in range(len(priority_keys)):
                                         move = root_state.moves(ceiling_switch=True)[0]
                                         root_state = root_state.next_state(move)
@@ -870,7 +952,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                         other_keys = [k for k in keys if k not in priority_keys]
                                         random.shuffle(other_keys)
                                         order = priority_keys + other_keys
-                                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length, hadamard_edges=hadamard_edges_)
                                         for _ in range(len(priority_keys)):
                                             move = root_state.moves(ceiling_switch=True)[0]
                                             root_state = root_state.next_state(move)
@@ -934,7 +1016,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     idle_place = best_state.idle_place
                                     t_track = best_state.t_track
 
-                                embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, idle_h_track, idle_place, t_track = basic_embedding(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order)
+                                embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, idle_h_track, idle_place, t_track = basic_embedding(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, hadamard_edges=hadamard_edges_)
                                 best_state.embed_node_pos = embed_node_pos
                                 best_state.embed_node_ori = embed_node_ori
                                 best_state.embed_node_type = embed_node_type
@@ -973,6 +1055,11 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 original_key = int(key.split("_")[0])
                                 qubit_index = graph_.qubit(original_key)
                                 qubit_output_map[qubit_index] = key
+                            # See the matching comment above `io_info_`'s
+                            # definition: only actually merges an entry if
+                            # this block turned out to reach that qubit's
+                            # true circuit-final layer.
+                            io_info.update({k: v for k, v in io_info_.items() if k in best_state.embed_node_pos})
 
                     continue
 
