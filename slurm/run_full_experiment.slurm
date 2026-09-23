@@ -11,13 +11,19 @@
 #SBATCH --output=/home/junyuzh/QEC/upgrade/TopoLS/slurm/logs/%x_%j.out
 #SBATCH --error=/home/junyuzh/QEC/upgrade/TopoLS/slurm/logs/%x_%j.err
 
-# Full "Full optimization" experiment: docs/exp.py's commands_1 block,
-# reproduced exactly (same 9 benchmarks, same flags), run against the
-# post-refactor code (Phase 0 + Phase 1a + Step 1b all done and
-# regression-verified -- see docs/REFACTOR_LOG.md). Results append to
-# docs/result/topols/result_f.csv, same as the original experiment.
-# Expect several hours total (qft_16/qpe_16 alone are each close to an
-# hour per the paper's Table 2 compile times).
+# Full "Full optimization" experiment: docs/exp.py's commands_1 block, run
+# against the post-refactor, post-unified-debugging-pass code (see
+# docs/REFACTOR_LOG.md). One deliberate deviation from docs/exp.py's exact
+# flags: qft_16 now uses -b0 0 like every other benchmark, not -b0 1.
+# -b0 1 forced find_block() to make block 0 a tiny 2-row block -- per the
+# user, this was a workaround for the P0 UnboundLocalError bug (avoiding
+# ever letting block 0 itself fail), not a property qft_16's circuit
+# actually needs. Now that P0 is fixed, testing without the workaround.
+# Results append to docs/result/topols/result_f.csv, same as the original
+# experiment. Expect several hours total (qft_16/qpe_16 alone are each
+# close to an hour per the paper's Table 2 compile times), though
+# meaningfully faster now given this session's parallelization + Tier 1/2
+# fixes + the P0-P4 unified debugging pass.
 
 set -euo pipefail
 
@@ -32,7 +38,7 @@ run() {
 run bv_16      4 1 0
 run dj_16      4 0 0
 run grover_6   2 0 0
-run qft_16     4 0 1
+run qft_16     4 0 0
 run qpe_16     4 0 0
 run vqe_16     4 0 0
 run ghz_16     4 0 0

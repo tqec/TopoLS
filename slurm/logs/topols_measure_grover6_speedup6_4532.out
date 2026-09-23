@@ -1,0 +1,7 @@
+Executing grover_6 benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 7.0 z_length: 637
+Space-time volume: 22295.0
+Time: 637
+Space: 35.0
+Compilation time: 693.5480372905731

@@ -43,7 +43,7 @@ BENCH_CONFIGS = {
     "bv_16": dict(b=20, l=4, r=1, s=2, t=2, i=1000, sp=0, b0=0),
     "dj_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=0),
     "grover_6": dict(b=20, l=2, r=0, s=2, t=2, i=1000, sp=0, b0=0),
-    "qft_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=1),
+    "qft_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=0),
     "qpe_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=0),
     "vqe_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=0),
     "ghz_16": dict(b=20, l=4, r=0, s=2, t=2, i=1000, sp=0, b0=0),

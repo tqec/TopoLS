@@ -1,0 +1,16 @@
+=== dj_16 with -s 5 (repeat to check reproducibility) ===
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 10
+Space-time volume: 810.0
+Time: 10
+Space: 81.0
+Compilation time: 26.743943214416504
+=== dj_16 with -s 2 (control, should still be 891) ===
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 11
+Space-time volume: 891.0
+Time: 11
+Space: 81.0
+Compilation time: 23.26484704017639

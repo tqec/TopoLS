@@ -126,15 +126,66 @@ draw sequence exactly, so results are unchanged; worker count auto-scales
 with `seed_step` up to `os.sched_getaffinity(0)`'s CPU count, not
 hardcoded and not `os.cpu_count()` -- the latter reports the whole node,
 not the job's actual Slurm allocation, confirmed wrong on this cluster).
-Cumulative effect on `grover_6`'s production-config compile time:
-2366.29s -> 738.31s (~3.2x). Also found (documented, not fixed -- changes
-actual routing outcomes) a missing stale-heap-entry guard in
-`routing/astar.py`'s three A* variants -- see `docs/ARCHITECTURE.md`'s bug
-list and `docs/REFACTOR_LOG.md`'s matching entry. See `docs/REFACTOR_LOG.md`
-for full details, the "diminishing returns" finding for further
-Python-level micro-optimization, and an earlier "independent seed" detour
-that was tried,
-found to make `bv_16`/`ghz_16` crash and `dj_16` measurably worse, and
-reverted.
+Cumulative effect on `grover_6`'s production-config compile time (before
+the unified debugging pass below): 2366.29s -> 738.31s (~3.2x). See
+`docs/REFACTOR_LOG.md` for full details, the "diminishing returns" finding
+for further Python-level micro-optimization, and an earlier "independent
+seed" detour that was tried, found to make `bv_16`/`ghz_16` crash and
+`dj_16` measurably worse, and reverted.
+
+**The unified debugging pass (`CLAUDE.md` rule 1) has started and its
+first full pass is done.** User asked for the full known-bug list
+prioritized (P0-P4) and fixed all of it, in order, each validated against
+the fast regression subset and, where a real trigger path existed,
+against an actual observed trigger (not just code-reading):
+- **P0 (fixed, trigger-confirmed)**: two `UnboundLocalError`s in
+  `driver.py`'s fallback ladder (`block_state`/`qubit_map_pre_layer`/
+  `occupied_zmax` when block 0 itself fails; `pre_state`/
+  `pre_ceiling_track`/`pre_node_type` when layer 1 itself fails) -- both
+  now seeded with "nothing embedded yet" placeholder `EmbeddingState`s
+  before the loop starts.
+- **P1 (fixed, trigger-confirmed, measurable improvement)**:
+  `routing/astar.py`'s missing stale-heap-entry guard -- added
+  `if g > seen[p]: continue` after each `heapq.heappop` in all three A*
+  variants. `bv_16`/`dj_16`/`ghz_16` unchanged (486/891/243); `grover_6`
+  improved 22995 -> 22295 volume (-3.0%) and -6.1% wall time. Cumulative
+  `grover_6` compile time after this fix: 738.31s -> 693.55s (~3.4x vs.
+  the original 2366.29s baseline).
+- **P2**: `ceiling()`'s double-mutation risk (fixed, not trigger-confirmed
+  -- `driver.py`'s `_fresh_copy_for_ceiling()` gives it a shallow copy
+  instead of the shared `pre_state`); `color_switch`'s "never verifies"
+  behavior re-classified as **not a bug** (user confirmed the
+  transformation is theoretically proven correct whenever it succeeds).
+- **P3 (fixed, not trigger-confirmed)**: the Hadamard branch's mis-nested
+  "second phase" loop (de-indented to a sibling statement); `lifting_path`'s
+  `None`-unsafety in `basic_embedding` (wrapped in a null check).
+- **P4**: `find_duplicate_geometric_edges()`'s missing `defaultdict`
+  import (fixed); `compute_center_of_mass`/`compute_center_of_space`
+  turned out to already be gone (stale doc, corrected, no code change);
+  `reward()`'s dead `paths` accumulator and `tol_path_lift` removed.
+
+See `docs/REFACTOR_LOG.md`'s dated entries for the full derivation of
+each fix and exactly what was/wasn't empirically triggered.
+
+**A second, separate round of bugs was found right after the P0-P4 pass**,
+while running the full 9-benchmark experiment with `qft_16`'s `-b0 1`
+workaround removed (that workaround, it turned out, was hiding this
+entirely -- see `docs/REFACTOR_LOG.md`). Three compounding, previously-
+unexercised bugs in the gate-by-gate fallback path, all now fixed:
+`layer_labeling_block_vanilla`'s 1-indexed layer numbering (should be
+0-indexed, matching the main pipeline's `layer_labeling()`), `reward()`'s
+crash on a legitimate zero-output-ports terminal state, and `driver.py`'s
+gate-by-gate loop bound (`+1` stale after the indexing fix, causing the
+whole compile to end one layer early). Validated end-to-end: `qft_16`
+with `-b0 0` now correctly compiles all 408 layers
+(`x=9, y=9, z=493, volume=39933`), not a truncated 2-layer stub. Fast
+regression subset unaffected. Full details and the exact diagnostic
+methodology in `docs/REFACTOR_LOG.md`'s two matching dated entries.
+
+**Not yet done**: update `tests/test_regression.py`'s `qft_16` `GOLDENS`/
+`BENCH_CONFIGS` (`-b0` value) to the new, workaround-free config; re-run
+the full 9-benchmark suite one more time now that this is fixed; decide
+whether to re-check `wstate_16`'s flagged (but unconfirmed) volume
+regression from the earlier full-experiment run.
 
 **Not started**: Phase 3 (Rust port).

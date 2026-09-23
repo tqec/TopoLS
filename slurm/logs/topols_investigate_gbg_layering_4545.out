@@ -1,0 +1,78 @@
+layer_labeling_block_vanilla output (before idling insertion):
+layer counts: Counter({1: 16, 2: 3, 4: 2, 6: 1, 7: 1, 3: 1, 5: 1, 8: 1})
+
+after idling_nodes_insertion_block_vanilla:
+layer counts: Counter({1: 16, 4: 16, 6: 16, 7: 16, 2: 16, 3: 16, 5: 16, 8: 16})
+total layers (rows_): 8 [1, 2, 3, 4, 5, 6, 7, 8]
+
+layer 1: 0 nodes with type, node_output_connect nonzero=0/0
+
+layer 2: 16 nodes with type, node_output_connect nonzero=16/16
+  node 1991: row=1, qubit=9, input_nodes=[9], output_count=1
+      neighbor 9: row=0, layer=1
+      neighbor 2479: row=1.8571428571428572, layer=3
+  node 1992: row=1, qubit=14, input_nodes=[14], output_count=1
+      neighbor 14: row=0, layer=1
+      neighbor 2478: row=4.0, layer=3
+  node 1993: row=1, qubit=15, input_nodes=[15], output_count=1
+      neighbor 15: row=0, layer=1
+      neighbor 1994: row=2, layer=3
+  node 2383: row=0.875, qubit=0, input_nodes=[0], output_count=1
+      neighbor 0: row=0, layer=1
+      neighbor 2384: row=1.75, layer=3
+  node 2390: row=0.875, qubit=1, input_nodes=[1], output_count=1
+      neighbor 1: row=0, layer=1
+      neighbor 2391: row=1.75, layer=3
+
+layer 3: 16 nodes with type, node_output_connect nonzero=16/16
+  node 1994: row=2, qubit=15, input_nodes=[1993], output_count=1
+      neighbor 1993: row=1, layer=2
+      neighbor 20: row=3, layer=4
+  node 2384: row=1.75, qubit=0, input_nodes=[2383], output_count=1
+      neighbor 2383: row=0.875, layer=2
+      neighbor 2385: row=2.625, layer=4
+  node 2391: row=1.75, qubit=1, input_nodes=[2390], output_count=1
+      neighbor 2390: row=0.875, layer=2
+      neighbor 2392: row=2.625, layer=4
+  node 2398: row=1.75, qubit=2, input_nodes=[2397], output_count=1
+      neighbor 2397: row=0.875, layer=2
+      neighbor 2399: row=2.625, layer=4
+  node 2405: row=1.75, qubit=3, input_nodes=[2404], output_count=1
+      neighbor 2404: row=0.875, layer=2
+      neighbor 2406: row=2.625, layer=4
+
+layer 4: 16 nodes with type, node_output_connect nonzero=16/16
+  node 20: row=3, qubit=15, input_nodes=[1994], output_count=1
+      neighbor 21: row=3, layer=4
+      neighbor 1994: row=2, layer=3
+      neighbor 2474: row=3.8, layer=5
+  node 21: row=3, qubit=14, input_nodes=[2478], output_count=1
+      neighbor 20: row=3, layer=4
+      neighbor 1995: row=4, layer=5
+      neighbor 2478: row=4.0, layer=3
+  node 2385: row=2.625, qubit=0, input_nodes=[2384], output_count=1
+      neighbor 2384: row=1.75, layer=3
+      neighbor 2386: row=3.5, layer=5
+  node 2392: row=2.625, qubit=1, input_nodes=[2391], output_count=1
+      neighbor 2391: row=1.75, layer=3
+      neighbor 2393: row=3.5, layer=5
+  node 2399: row=2.625, qubit=2, input_nodes=[2398], output_count=1
+      neighbor 2398: row=1.75, layer=3
+      neighbor 2400: row=3.5, layer=5
+
+layer 5: 16 nodes with type, node_output_connect nonzero=16/16
+  node 1995: row=4, qubit=14, input_nodes=[21], output_count=1
+      neighbor 21: row=3, layer=4
+      neighbor 23: row=5, layer=6
+  node 2386: row=3.5, qubit=0, input_nodes=[2385], output_count=1
+      neighbor 2385: row=2.625, layer=4
+      neighbor 2387: row=4.375, layer=6
+  node 2393: row=3.5, qubit=1, input_nodes=[2392], output_count=1
+      neighbor 2392: row=2.625, layer=4
+      neighbor 2394: row=4.375, layer=6
+  node 2400: row=3.5, qubit=2, input_nodes=[2399], output_count=1
+      neighbor 2399: row=2.625, layer=4
+      neighbor 2401: row=4.375, layer=6
+  node 2407: row=3.5, qubit=3, input_nodes=[2406], output_count=1
+      neighbor 2406: row=2.625, layer=4
+      neighbor 2408: row=4.375, layer=6

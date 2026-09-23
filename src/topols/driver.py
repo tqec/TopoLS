@@ -36,6 +36,46 @@ def _mcts_worker(root_state, rng_state, iters, time_limit, move_num, block_switc
     return mcts(root_state, iters=iters, time_limit=time_limit, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=layer, length=length)
 
 
+def _fresh_copy_for_ceiling(state):
+    """P2 fix (unified debugging pass -- see docs/ARCHITECTURE.md's bug
+    list and docs/REFACTOR_LOG.md's dated entry): `ceiling()` mutates its
+    `best_state` argument's dict fields in place (`embed_node_pos`/`_ori`/
+    `_type`, `t_track`, `idle_h_track`), and the fallback ladder's control
+    flow can call `ceiling(pre_state, ...)` a second time on the *same*
+    `pre_state` object before it's ever reassigned (confirmed reachable:
+    the top-level ceiling-retry and gate-by-gate's own second-level
+    ceiling-retry share one `ceiling_flag` guard that gets reset to 0 by
+    an unrelated inner success, not by "has ceiling() run on this
+    pre_state yet"). A second call on an already-mutated object corrupts
+    `embed_path` (`ceiling_paths` gets appended twice) and `idle_h_track`
+    (wraps an already-transformed entry again). Fix: give `ceiling()` a
+    fresh shallow copy of the mutable dict fields every time instead of
+    the shared `pre_state` object, so each call starts from the same true
+    "last known good" values independently. `ceiling()` only ever does
+    top-level `dict[key] = value` / `del dict[key]` on these fields (never
+    mutates a nested value in place), so a shallow copy is sufficient --
+    confirmed by reading the whole function body. Behavior-identical for
+    the common single-call case (the returned state's field *values* are
+    the same either way); this only changes what happens on a second call
+    on the same `pre_state`."""
+    return EmbeddingState(
+        embed_node_pos=dict(state.embed_node_pos),
+        embed_node_ori=dict(state.embed_node_ori),
+        embed_node_type=dict(state.embed_node_type),
+        embed_path=state.embed_path,
+        occupied=state.occupied,
+        z_floor=state.z_floor,
+        x_min_floor=state.x_min_floor, x_max_floor=state.x_max_floor,
+        y_min_floor=state.y_min_floor, y_max_floor=state.y_max_floor,
+        idle_h_track=dict(state.idle_h_track),
+        idle_place=dict(state.idle_place),
+        t_track=dict(state.t_track),
+        node_type=state.node_type, input_connect=state.input_connect,
+        inter_connect=state.inter_connect, output_connect=state.output_connect,
+        order=state.order, z_length=state.z_length, order_idx=state.order_idx,
+    )
+
+
 def _available_cpu_count():
     """`os.cpu_count()` reports the whole machine's core count, not this
     process's actual Slurm allocation -- confirmed on this cluster
@@ -290,7 +330,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
         if node_output_connect == {}:
             # print("No more output connection: return best state.")
-            best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type, final=True)
+            best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type, final=True)
             path = list(best_state.embed_path)
             for _, track in best_state.idle_h_track.items():
                 path.append(track[1])
@@ -303,7 +343,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
         if block_flag == 1:
             if brute_to_block == 0:
-                best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type)
+                best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type)
             brute_to_block = 0
 
         if i > 1:
@@ -361,6 +401,21 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             random.seed(seed)
             for key in node_input_connect:
                 random.shuffle(node_input_connect[key])
+            # P-new fix (found after enabling seed_step=5 -- see
+            # docs/REFACTOR_LOG.md's dated entry): `node_input_connect` is
+            # shared, mutable, and progressively re-shuffled by every seed
+            # in this loop; `root_state.input_connect` used to be bound to
+            # this *same* dict object rather than a copy, so by the time
+            # jobs are dispatched to the parallel pool (after every seed's
+            # preamble has already run), *every* seed's root_state ended up
+            # seeing the *final* post-all-seeds shuffle state instead of
+            # the state that existed at its own point in the sequence --
+            # breaking the faithful-replay guarantee for this one field
+            # (the `random.getstate()` snapshot was correct; this dict
+            # wasn't equally snapshotted). Fix: snapshot a copy right here,
+            # after this seed's own shuffle, and use the snapshot for
+            # everything below instead of the live, still-mutating dict.
+            node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
             keys = list(node_type.keys())
             random.shuffle(keys)
             order = keys
@@ -371,7 +426,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 for k in keys:
                     if node_type[k] != 2:
                         continue
-                    port = node_input_connect[k][0]
+                    port = node_input_connect_seed[k][0]
                     if input_port_type[port] in (2, 3):
                         continue
                     if input_port_ori[port] != 'k':
@@ -382,7 +437,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             else:
                 ceiling_switch = False
 
-            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
             if block_switch:
                 for _ in range(len(priority_keys)):
                     move = root_state.moves(ceiling_switch=True)[0]
@@ -404,6 +459,9 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 random.seed(seed)
                 for key in node_input_connect:
                     random.shuffle(node_input_connect[key])
+                # Snapshot fix -- see the matching comment on the first
+                # seed loop above and docs/REFACTOR_LOG.md.
+                node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                 keys = list(node_type.keys())
                 random.shuffle(keys)
                 order = keys
@@ -414,7 +472,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     for k in keys:
                         if node_type[k] != 2:
                             continue
-                        port = node_input_connect[k][0]
+                        port = node_input_connect_seed[k][0]
                         if input_port_type[port] in (2, 3):
                             continue
                         if input_port_ori[port] != 'k':
@@ -425,7 +483,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 else:
                     ceiling_switch = False
 
-                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                 if block_switch:
                     for _ in range(len(priority_keys)):
                         move = root_state.moves(ceiling_switch=True)[0]
@@ -448,7 +506,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 break
             else:
                 if ceiling_flag == 0:
-                    best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type)
+                    best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type)
 
                     input_port_loc = best_state.embed_node_pos
                     input_port_ori = best_state.embed_node_ori
@@ -470,11 +528,14 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         random.seed(seed)
                         for key in node_input_connect:
                             random.shuffle(node_input_connect[key])
+                        # Snapshot fix -- see the matching comment on the
+                        # first seed loop above and docs/REFACTOR_LOG.md.
+                        node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                         priority_keys = []
                         for k in keys:
                             if node_type[k] != 2:
                                 continue
-                            port = node_input_connect[k][0]
+                            port = node_input_connect_seed[k][0]
                             if input_port_type[port] in (2, 3):
                                 continue
                             if input_port_ori[port] != 'k':
@@ -482,7 +543,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         other_keys = [k for k in keys if k not in priority_keys]
                         random.shuffle(other_keys)
                         order = priority_keys + other_keys
-                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                         for _ in range(len(priority_keys)):
                             move = root_state.moves(ceiling_switch=True)[0]
                             root_state = root_state.next_state(move)
@@ -503,11 +564,15 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             random.seed(seed)
                             for key in node_input_connect:
                                 random.shuffle(node_input_connect[key])
+                            # Snapshot fix -- see the matching comment on
+                            # the first seed loop above and
+                            # docs/REFACTOR_LOG.md.
+                            node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                             priority_keys = []
                             for k in keys:
                                 if node_type[k] != 2:
                                     continue
-                                port = node_input_connect[k][0]
+                                port = node_input_connect_seed[k][0]
                                 if input_port_type[port] in (2, 3):
                                     continue
                                 if input_port_ori[port] != 'k':
@@ -515,7 +580,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             other_keys = [k for k in keys if k not in priority_keys]
                             random.shuffle(other_keys)
                             order = priority_keys + other_keys
-                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                             for _ in range(len(priority_keys)):
                                 move = root_state.moves(ceiling_switch=True)[0]
                                 root_state = root_state.next_state(move)
@@ -562,13 +627,31 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     z_floor = block_max_z
 
                     finished_qubits = []
-                    for j in range(1, len(rows_)+1):
-                        # print("In the gate by gate embedding, layer:", j)
+                    # P-new fix (unified debugging pass -- see
+                    # docs/ARCHITECTURE.md's bug list and
+                    # docs/REFACTOR_LOG.md's dated entry): this used to be
+                    # `range(1, len(rows_)+1)`, matching
+                    # layer_labeling_block_vanilla()'s old 1-indexed layer
+                    # numbering (boundary nodes at layer 1, so all
+                    # `len(rows_)` layers needed to be visited). Now that
+                    # layer_labeling_block_vanilla() is 0-indexed (layer 0 =
+                    # boundary, matching the main pipeline's
+                    # layer_labeling() convention), the valid real-layer
+                    # range is `range(1, len(rows_))` -- exactly mirroring
+                    # the outer `for i in tqdm(range(1, len(rows))):` loop
+                    # above. The stale `+1` here made this loop walk one
+                    # layer past the block's real end, where layer_info()
+                    # finds nothing and the "no more output connections"
+                    # branch fires -- since that branch does a hard
+                    # `return` from operation() entirely (not just "this
+                    # block is done, move to the next"), this was
+                    # incorrectly ending the whole compile partway through.
+                    for j in range(1, len(rows_)):
                         node_input_connect, node_inter_connect, node_output_connect, node_type = layer_info(graph_, layer_labels_, j)
 
                         if node_output_connect == {}:
                             # print("No more output connection: return best state.")
-                            best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type, final=True)
+                            best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type, final=True)
                             path = list(best_state.embed_path)
                             for _, track in best_state.idle_h_track.items():
                                 path.append(track[1])
@@ -615,7 +698,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     del node_type[key]
                                     del node_output_connect[key]
 
-                        if j == len(rows_):
+                        # `- 1` here (and at the other 2 "last layer of this
+                        # block" checks below) matches the loop bound fix
+                        # above -- see that comment.
+                        if j == len(rows_) - 1:
                             node_output_connect = {k: 1 for k, v in node_output_connect.items()}
                         node_output_connect = {k: v for k, v in node_output_connect.items() if v != 0}
 
@@ -659,10 +745,14 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             random.seed(seed)
                             for key in node_input_connect:
                                 random.shuffle(node_input_connect[key])
+                            # Snapshot fix -- see the matching comment on
+                            # the first seed loop above and
+                            # docs/REFACTOR_LOG.md.
+                            node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                             keys = list(node_type.keys())
                             random.shuffle(keys)
                             order = keys
-                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                            root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                             rng_snapshot = random.getstate()
                             jobs.append((root_state, rng_snapshot, iter_num, time_bound, 1, block_switch, False, j, length))
 
@@ -680,10 +770,14 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 random.seed(seed)
                                 for key in node_input_connect:
                                     random.shuffle(node_input_connect[key])
+                                # Snapshot fix -- see the matching comment
+                                # on the first seed loop above and
+                                # docs/REFACTOR_LOG.md.
+                                node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                 keys = list(node_type.keys())
                                 random.shuffle(keys)
                                 order = keys
-                                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                                 rng_snapshot = random.getstate()
                                 jobs.append((root_state, rng_snapshot, iter_num, time_bound, move_num, block_switch, False, j, length))
 
@@ -701,7 +795,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
                             if ceiling_flag == 0:
                                 # print(f"Failed to find a valid embedding for layer {j} with gate by gate embedding, try ceiling.")
-                                best_state = ceiling(pre_state, pre_ceiling_track, pre_node_type)
+                                best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type)
                                 ceiling_state = best_state
 
                                 input_port_loc = best_state.embed_node_pos
@@ -723,11 +817,15 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     random.seed(seed)
                                     for key in node_input_connect:
                                         random.shuffle(node_input_connect[key])
+                                    # Snapshot fix -- see the matching
+                                    # comment on the first seed loop above
+                                    # and docs/REFACTOR_LOG.md.
+                                    node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                     priority_keys = []
                                     for k in keys:
                                         if node_type[k] != 2:
                                             continue
-                                        port = node_input_connect[k][0]
+                                        port = node_input_connect_seed[k][0]
                                         if input_port_type[port] in (2, 3):
                                             continue
                                         if input_port_ori[port] != 'k':
@@ -735,7 +833,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     other_keys = [k for k in keys if k not in priority_keys]
                                     random.shuffle(other_keys)
                                     order = priority_keys + other_keys
-                                    root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                    root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                                     for _ in range(len(priority_keys)):
                                         move = root_state.moves(ceiling_switch=True)[0]
                                         root_state = root_state.next_state(move)
@@ -756,11 +854,15 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                         random.seed(seed)
                                         for key in node_input_connect:
                                             random.shuffle(node_input_connect[key])
+                                        # Snapshot fix -- see the matching
+                                        # comment on the first seed loop
+                                        # above and docs/REFACTOR_LOG.md.
+                                        node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                         priority_keys = []
                                         for k in keys:
                                             if node_type[k] != 2:
                                                 continue
-                                            port = node_input_connect[k][0]
+                                            port = node_input_connect_seed[k][0]
                                             if input_port_type[port] in (2, 3):
                                                 continue
                                             if input_port_ori[port] != 'k':
@@ -768,7 +870,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                         other_keys = [k for k in keys if k not in priority_keys]
                                         random.shuffle(other_keys)
                                         order = priority_keys + other_keys
-                                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
+                                        root_state = EmbeddingState(embed_node_pos=input_port_loc, embed_node_ori=input_port_ori, embed_node_type=input_port_type, embed_path=embed_path, occupied=occupied, z_floor=z_floor, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=idle_h_track, idle_place=idle_place, t_track=t_track, node_type=node_type, input_connect=node_input_connect_seed, inter_connect=node_inter_connect, output_connect=node_output_connect, order=order, z_length=z_length)
                                         for _ in range(len(priority_keys)):
                                             move = root_state.moves(ceiling_switch=True)[0]
                                             root_state = root_state.next_state(move)
@@ -844,7 +946,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 ceiling_flag = 1
                                 pre_brute_state = best_state
 
-                                if j == len(rows_):
+                                if j == len(rows_) - 1:
                                     qubit_output_map = {}
                                     for key in node_input_connect:
                                         original_key = int(key.split("_")[0])
@@ -865,7 +967,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         pre_ceiling_track = ceiling_track
                         pre_node_type = node_type
 
-                        if j == len(rows_):
+                        if j == len(rows_) - 1:
                             qubit_output_map = {}
                             for key in node_input_connect:
                                 original_key = int(key.split("_")[0])

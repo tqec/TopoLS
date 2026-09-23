@@ -507,11 +507,27 @@ class EmbeddingState:
         xs = [pt[0] for pt in available_points]
         ys = [pt[1] for pt in available_points]
 
-        # Bounding box of ceiling ports
-        x_min = min(xs)
-        x_max = max(xs)
-        y_min = min(ys)
-        y_max = max(ys)
+        # Bounding box of ceiling ports. When there are no output ports
+        # left to route (num_ports == 0 -- a legitimate terminal state,
+        # e.g. the circuit's last layer), auto_ports(0, ...) correctly
+        # returns no candidate points, but xs/ys are then empty and
+        # min()/max() would raise. x_min/x_max/y_min/y_max are also used
+        # later in this function for T-gate exit routing (route_single_
+        # T_to_boundary), which is independent of whether there are output
+        # ports here, so fall back to the embedding's own fixed floor
+        # bounds rather than an arbitrary default -- confirmed reachable
+        # this session (unified debugging pass) via qft_16's gate-by-gate
+        # fallback, previously never exercised deeply enough to hit this.
+        # See docs/ARCHITECTURE.md's bug list and docs/REFACTOR_LOG.md's
+        # dated entry.
+        if num_ports == 0:
+            x_min, x_max = self.x_min_floor, self.x_max_floor
+            y_min, y_max = self.y_min_floor, self.y_max_floor
+        else:
+            x_min = min(xs)
+            x_max = max(xs)
+            y_min = min(ys)
+            y_max = max(ys)
 
         # Assign each output node to a ceiling port
         node_target_pairs = {}
@@ -558,7 +574,6 @@ class EmbeddingState:
         occ_pre = set(self.occupied)
         ceiling_track = {}
         occ_ceiling = occ_pre.copy()
-        paths = list(self.embed_path)
 
         # Route each output node to its assigned ceiling port
         for node in node_order:
@@ -655,8 +670,6 @@ class EmbeddingState:
                 occ_ceiling.add(target)
                 for q in path[1:-1]:
                     occ_ceiling.add(q)
-
-            paths.append(tuple(path))
 
         # Resolve T-gate exits to the boundary
         new_t_track = self.t_track.copy()
@@ -1082,37 +1095,41 @@ class EmbeddingState:
                             return None
                         paths.append(tuple(path))
 
-                # Second phase: inter-node connections involving Hadamard
-                # NOTE: this loop is nested one level inside the "for input in
-                # self.input_connect[node]" loop above (it should be a sibling
-                # statement after that loop ends, as it is in every other
-                # branch of next_state). This is a pre-existing, deliberately
-                # preserved bug -- if a Hadamard node ever has two input ports
-                # from the previous layer, this runs twice and the second
-                # `del track[...]` call will KeyError. See
-                # docs/ARCHITECTURE.md's bug list and docs/REFACTOR_LOG.md's
-                # "Step 1b" entry.
-                for a, b in self.inter_connect:
+            # Second phase: inter-node connections involving Hadamard
+            # P3 fix (unified debugging pass -- see docs/ARCHITECTURE.md's
+            # bug list and docs/REFACTOR_LOG.md's dated entry): this loop
+            # used to be nested one level inside the "for input in
+            # self.input_connect[node]" loop above, so a Hadamard node with
+            # 2 input ports would run it twice, and the second `del
+            # track[...]` inside `_route_chain_src_to_chain_dst` would
+            # KeyError. No existing benchmark was ever confirmed to exercise
+            # a two-input-port Hadamard node, so this was never observed --
+            # but for the common (and only tested) single-input-port case,
+            # the last-and-only loop iteration already reached this exact
+            # point with the exact same `pos`/`occ`/`track` state a sibling
+            # statement after the loop would see, so moving it here is
+            # behavior-identical for n<=1 inputs and only changes n>=2.
+            for a, b in self.inter_connect:
 
-                    if (a == node and b in pos) or (b == node and a in pos):
+                if (a == node and b in pos) or (b == node and a in pos):
 
-                        src_node = a if a == node else b
-                        dst_node = b if a == node else a
-                        dst_typ =typ[dst_node]
+                    src_node = a if a == node else b
+                    dst_node = b if a == node else a
+                    dst_typ =typ[dst_node]
 
-                        if dst_typ in (0, 1, 4, 5):
+                    if dst_typ in (0, 1, 4, 5):
 
-                            path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
-                            if path is None:
-                                return None
-                            paths.append(tuple(path))
+                        path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        if path is None:
+                            return None
+                        paths.append(tuple(path))
 
-                        if dst_typ in (2, 3):
+                    if dst_typ in (2, 3):
 
-                            path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
-                            if path is None:
-                                return None
-                            paths.append(tuple(path))
+                        path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input)
+                        if path is None:
+                            return None
+                        paths.append(tuple(path))
 
         # ===========================================================================================
         # Case 4: S nodes (type 4), we add a blue junction at node, measurement based implementation

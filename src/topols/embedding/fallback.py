@@ -111,31 +111,43 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                     if path_1 is not None:
                         tol_path = [(pos_1[0], pos_1[1], z_search)] + path_1 + [(pos_2[0], pos_2[1], z_search)]
                         if all((pt[0], pt[1], z_search+1) not in occupied for pt in tol_path):
-                            tol_path_lift = [(pt[0], pt[1], z_search+1) for pt in tol_path]
+                            # P3 fix (unified debugging pass -- see
+                            # docs/ARCHITECTURE.md's bug list and
+                            # docs/REFACTOR_LOG.md's dated entry):
+                            # lifting_path() returns None when tol_path has
+                            # no corner to lift from (a perfectly straight
+                            # candidate); the code used to index into that
+                            # None unconditionally. Treat it the same as
+                            # the other candidate-rejection checks in this
+                            # loop (shortest_path_base returning None,
+                            # the occupancy check above) -- skip to the
+                            # next (target_1, target_2) candidate instead
+                            # of crashing.
                             tol_path = lifting_path(tol_path)
-                            embed_node_pos[f"{node1}_old"] = tol_path[0]
-                            embed_node_pos[f"{node2}_old"] = tol_path[-1]
-                            embed_node_type[f"{node1}_old"] = node_type[node1]
-                            embed_node_type[f"{node2}_old"] = node_type[node2]
-                            if node_type[node1] == 1:
-                                embed_node_ori[f"{node1}_old"] = 'j' if ori_1_blue == 'i' else 'i'
-                            else:
-                                embed_node_ori[f"{node1}_old"] = ori_1_blue
-                            if node_type[node2] == 1:
-                                embed_node_ori[f"{node2}_old"] = 'j' if ori_2_blue == 'i' else 'i'
-                            else:
-                                embed_node_ori[f"{node2}_old"] = ori_2_blue
-                            path_1_v = vertical_z_path(qubit_pose[input_connect[node1][0]], tol_path[0])
-                            path_2_v = vertical_z_path(qubit_pose[input_connect[node2][0]], tol_path[-1])
-                            embed_path.append(tuple(tol_path)); embed_path.append(tuple(path_1_v)); embed_path.append(tuple(path_2_v))
-                            for pt in tol_path:
-                                occupied.add(pt)
-                            for pt in path_1_v:
-                                occupied.add(pt)
-                            for pt in path_2_v:
-                                occupied.add(pt)
-                            found = 1
-                            break
+                            if tol_path is not None:
+                                embed_node_pos[f"{node1}_old"] = tol_path[0]
+                                embed_node_pos[f"{node2}_old"] = tol_path[-1]
+                                embed_node_type[f"{node1}_old"] = node_type[node1]
+                                embed_node_type[f"{node2}_old"] = node_type[node2]
+                                if node_type[node1] == 1:
+                                    embed_node_ori[f"{node1}_old"] = 'j' if ori_1_blue == 'i' else 'i'
+                                else:
+                                    embed_node_ori[f"{node1}_old"] = ori_1_blue
+                                if node_type[node2] == 1:
+                                    embed_node_ori[f"{node2}_old"] = 'j' if ori_2_blue == 'i' else 'i'
+                                else:
+                                    embed_node_ori[f"{node2}_old"] = ori_2_blue
+                                path_1_v = vertical_z_path(qubit_pose[input_connect[node1][0]], tol_path[0])
+                                path_2_v = vertical_z_path(qubit_pose[input_connect[node2][0]], tol_path[-1])
+                                embed_path.append(tuple(tol_path)); embed_path.append(tuple(path_1_v)); embed_path.append(tuple(path_2_v))
+                                for pt in tol_path:
+                                    occupied.add(pt)
+                                for pt in path_1_v:
+                                    occupied.add(pt)
+                                for pt in path_2_v:
+                                    occupied.add(pt)
+                                found = 1
+                                break
 
                 if found:
                     break

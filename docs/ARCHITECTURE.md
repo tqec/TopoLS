@@ -413,13 +413,25 @@ Key steps, in order:
 
 ## 6. Known latent bugs / fragilities (as of this writing)
 
-- `layer_mcts.py:1777` — in the type-3 (Hadamard) branch of `next_state`, the
+- ~~`layer_mcts.py:1777` — in the type-3 (Hadamard) branch of `next_state`, the
   intra-layer-edge loop is indented *inside* the input-port loop; a
   Hadamard node with two input ports would run it twice and raise `KeyError`
-  on a repeated `del track[...]`.
-- `lifting_path` (`layer_mcts.py:354`) returns `None` for a corner-free path;
-  its only caller (in `basic_embedding`) indexes the result immediately
-  without a `None` check.
+  on a repeated `del track[...]`.~~ **Fixed 2026-09-22 (P3, unified
+  debugging pass) -- see `docs/REFACTOR_LOG.md`'s dated entry.** De-indented
+  the loop to be a sibling statement after the input-port loop, matching
+  every other branch. Confirmed behavior-identical for the single-input-
+  port case (fast subset PASSED at exact equality); the two-input-port
+  case itself remains unobserved by any benchmark, so this fix is
+  verified-safe rather than verified-triggered.
+- ~~`lifting_path` (`layer_mcts.py:354`) returns `None` for a corner-free
+  path; its only caller (in `basic_embedding`) indexes the result
+  immediately without a `None` check.~~ **Fixed 2026-09-22 (P3, unified
+  debugging pass) -- see `docs/REFACTOR_LOG.md`'s dated entry.** Wrapped
+  the success body in `if tol_path is not None:`, matching the two
+  existing candidate-rejection checks right above it in the same loop.
+  Verified no regression on the fast subset; `basic_embedding` itself was
+  never confirmed reached by any test this session, so verified-safe
+  rather than verified-triggered.
 - ~~The gate-by-gate fallback (`operation`, ~3298-3485) reads `occupied_zmax`,
   `block_state`, `qubit_map_pre_layer` — all first assigned only inside the
   `block_flag == 1` branch. A failure occurring inside block 0 before that
@@ -463,25 +475,126 @@ Key steps, in order:
   monkeypatch-surfaced `KeyError` was not pursued further and is not
   confirmed to be a real, independently-reachable bug (see
   `docs/REFACTOR_LOG.md`'s dated entry for the full discussion).
-- `ceiling()` mutates its argument in place and returns it; the fallback
+- ~~`ceiling()` mutates its argument in place and returns it; the fallback
   ladder's control flow can structurally call it twice on the same
   `pre_state`, which would double-apply the `_old` renaming and duplicate
-  appended paths.
-- `color_switch` never verifies that it actually resolved the color mismatch
-  it was called to fix; it also only tries the first geometrically feasible
-  corner rather than the one nearest the offending end, and cannot repair
-  straight or very short (< 5-point) pipes at all.
-- `trans2tqec.py`'s `find_duplicate_geometric_edges()` calls `defaultdict`
-  but the file never imported it -- `NameError` if ever called. Confirmed
-  (repo-wide grep, 2026-09-21) that nothing calls this function anywhere,
-  so it's long-standing but harmless in practice. Discovered while
-  splitting the file in Phase 1a step 3 (see `docs/REFACTOR_LOG.md`).
-- Dead code of note: `compute_center_of_mass`/`compute_center_of_space`
-  (lines 43/51, unused anywhere), the `paths.append(...)` accumulation inside
-  `reward()` (never returned), `tol_path_lift` in `basic_embedding`.
-- **`routing/astar.py`'s three A* variants (`shortest_path_with_zmax`,
+  appended paths.~~ **Fixed 2026-09-22 (P2, unified debugging pass) -- see
+  `docs/REFACTOR_LOG.md`'s dated entry.** Traced the exact trigger (not
+  just the structural possibility): the top-level and gate-by-gate's
+  second-level ceiling-retry share one `ceiling_flag` guard that gets
+  reset by an unrelated inner sub-step's success, not by "has ceiling()
+  already run on this pre_state" -- so both can fire on the same
+  unreassigned `pre_state`. Fix: `driver.py`'s `_fresh_copy_for_ceiling()`
+  gives `ceiling()` a shallow copy of the mutable dict fields every call
+  instead of the shared object, so `pre_state` itself is never mutated.
+  Verified no regression (fast subset + the 7-benchmark forced-failure
+  batch from the P0 fix, byte-identical output); the double-call scenario
+  itself was not confirmed to have actually fired in that test (unlike
+  the P0/P1 fixes), so this is verified-safe rather than verified-triggered.
+- ~~`color_switch` never verifies that it actually resolved the color
+  mismatch it was called to fix~~ **Downgraded 2026-09-22, not a bug**:
+  user confirmed the geometric offset-insertion transformation is
+  theoretically proven to always flip the color correctly whenever it
+  returns a non-`None` path (the color-consistency algebra guarantees
+  this), so the caller's "non-`None` means success" check is already
+  sound -- adding a runtime re-verification would be redundant overhead,
+  not a correctness fix. Two adjacent, *separate* properties remain, but
+  are design choices/limitations rather than bugs, deliberately deferred
+  rather than fixed in this pass: it only tries the first geometrically
+  feasible corner rather than the one nearest the offending end (a search-
+  strategy choice that would change which valid path gets picked, even in
+  currently-successful cases); and it cannot repair straight or very short
+  (< 5-point) pipes at all (likely a fundamental geometric constraint --
+  the offset-insertion needs an actual corner to pivot around -- not an
+  oversight).
+- ~~`export/bgraph.py`'s `find_duplicate_geometric_edges()` calls
+  `defaultdict` but the file never imported it -- `NameError` if ever
+  called.~~ **Fixed 2026-09-22 (P4, unified debugging pass) -- see
+  `docs/REFACTOR_LOG.md`'s dated entry.** Added `defaultdict` to the
+  existing `from collections import Counter` line. Still confirmed
+  (repo-wide grep) that nothing calls this function anywhere, so this was
+  latent and harmless either way -- fixed the import regardless now that
+  we're in the unified debugging pass.
+- ~~Dead code of note: `compute_center_of_mass`/`compute_center_of_space`
+  (lines 43/51, unused anywhere)~~ -- **already gone**, not actually
+  present in the current codebase; this line was stale (the functions were
+  *dropped*, not moved, during the Phase 1a `geometry.py` split -- see
+  `docs/REFACTOR_LOG.md`'s Phase 1a step 1 entry -- and this bug-list entry
+  was never updated to reflect that). ~~the `paths.append(...)`
+  accumulation inside `reward()` (never returned)~~ **removed 2026-09-22
+  (P4)** -- confirmed via `grep` that `paths` (built at `state.py`'s old
+  line 561, appended to at line 659) was never read again before
+  `reward()`'s `return` statement; deleted both lines, zero behavior
+  change. ~~`tol_path_lift` in `basic_embedding`~~ **removed as part of
+  the P3 `lifting_path` fix** (see that dated entry) -- it was one line
+  above the code being touched anyway.
+- ~~**`layer_labeling_block_vanilla`/`idling_nodes_insertion_block_vanilla`
+  produce a degenerate re-partition for at least one real block range,
+  causing gate-by-gate fallback to terminate the whole compile far too
+  early.**~~ **Fixed 2026-09-22 (unified debugging pass) -- see
+  `docs/REFACTOR_LOG.md`'s dated entry.** Discovered while running the
+  full 9-benchmark "Full optimization" experiment with `qft_16`'s `-b0 1`
+  workaround removed. This turned out to be **three separate, compounding
+  bugs**, all in the gate-by-gate fallback path, none previously exercised
+  because this path had never been triggered on a real (non-tiny) block
+  before:
+  1. `layer_labeling_block_vanilla()` (`zx_transform/layering.py`) numbered
+     layers 1-indexed (`row_to_layer = {row: idx + 1 ...}`), putting
+     boundary/input nodes at layer 1. The main pipeline's `layer_labeling()`
+     is 0-indexed (BFS starts at `max_label=-1`, so boundary nodes land at
+     layer 0, first real gates at layer 1). Since `layer_info()` filters
+     boundary nodes out entirely (`node_type_convert() == -1`), gate-by-
+     gate's own layer 1 came back empty, hitting driver.py's "no more
+     output connections, finalize" branch on its very first sub-layer.
+     Fix: changed to `row_to_layer = {row: idx ...}` (0-indexed, matching
+     the main convention).
+  2. `EmbeddingState.reward()` (`embedding/state.py`) crashed with
+     `ValueError: min() arg is an empty sequence` when `num_ports =
+     len(self.output_connect)` is 0 (a legitimate terminal state, e.g. a
+     circuit's last real layer) -- `auto_ports(0, ...)` correctly returns
+     no candidate points, but `x_min = min(xs)` etc. didn't guard against
+     the resulting empty list, immediately surfaced once fix #1 let gate-
+     by-gate reach real MCTS/rollout calls for the first time. Fix: when
+     `num_ports == 0`, fall back to the embedding's own fixed floor bounds
+     (`self.x_min_floor` etc.) instead of deriving bounds from an empty
+     candidate set -- these bounds are also used later in the same function
+     for T-gate exit routing, independent of whether this layer has output
+     ports, so an arbitrary default would have been wrong.
+  3. `driver.py`'s gate-by-gate loop (`for j in range(1, len(rows_)+1):`)
+     and its three "is this the last layer of this block" checks (`if j ==
+     len(rows_):`) were written for the *old* 1-indexed
+     `layer_labeling_block_vanilla` (where all `len(rows_)` layers,
+     1..len(rows_), were real). After fix #1 made it 0-indexed (real layers
+     now 1..len(rows_)-1, mirroring the outer `for i in tqdm(range(1,
+     len(rows))):` loop's exact convention), the `+1` walked one layer past
+     the block's real end, where `layer_info()` finds nothing -- and since
+     that "no more output" branch does a hard `return` from `operation()`
+     entirely (not "this block is done, move to the next"), this
+     incorrectly ended the *whole compile* partway through, even though
+     block 0 was correctly and completely processed. Fix: loop bound
+     changed to `range(1, len(rows_))`; all three `len(rows_)` comparisons
+     changed to `len(rows_) - 1`.
+
+  **Validated with a full, real compile, not just a smaller repro**:
+  `qft_16` with `-b0 0` now correctly processes all 408 layers (previously
+  stopped after 2), landing on `(x=9, y=9, z=493, volume=39933)` --
+  ~1.9% higher than the old `-b0 1`-workaround golden (484/39204), a
+  plausible and expected difference from the different block structure,
+  not a sign of remaining bugs. Fast regression subset re-confirmed
+  unaffected (PASSED at exact equality) after all three fixes.
+- ~~**`routing/astar.py`'s three A* variants (`shortest_path_with_zmax`,
   `shortest_path`'s two phases, `shortest_path_base`) are missing the
-  standard "skip stale heap entries" guard.** Found 2026-09-22 while
+  standard "skip stale heap entries" guard.**~~ **Fixed 2026-09-22 (P1,
+  unified debugging pass) -- see `docs/REFACTOR_LOG.md`'s dated entry.**
+  Added `if g > seen[p]: continue` right after each `heapq.heappop`, before
+  `back[p] = parent`, in all three variants. Verified: `bv_16`/`dj_16`/
+  `ghz_16` came back byte-identical (486/891/243 -- the stale-duplicate
+  scenario apparently never lands on their final chosen routes);
+  `grover_6` (T-gate-heavy, deep) measurably improved -- volume 22995 ->
+  22295 (-3.0%, larger than this benchmark's known ~1% run-to-run jitter,
+  and in the predicted direction since the fix can only remove wasted
+  work, never make a result worse) and wall time -6.1%. Original
+  derivation, found 2026-09-22 while
   answering the user's "is A* efficient" question -- see
   `docs/REFACTOR_LOG.md`'s matching entry for the full derivation. Each
   variant uses lazy deletion (push a new, better `(f, g, node, parent)`
@@ -502,10 +615,30 @@ Key steps, in order:
   intermediate node whose `back[]` got clobbered by a later, worse
   duplicate pop, producing a *valid but non-shortest* path -- a previously
   undocumented, plausible contributor to inflated space-time volume, not
-  just a speed issue. Standard fix is a one-line guard right after the pop
-  (`if g > seen.get(p, ...): continue`), but implementing it changes actual
-  routing outcomes (some paths would get shorter), so per the standing rule
-  this waits for the unified debugging pass, not a Python-side patch now --
-  logged here as a concrete input for the Rust port's A* design instead
-  (where bidirectional search is also worth considering, given src/dst are
-  both known at call time).
+  just a speed issue. Fixed above; bidirectional A* is still worth
+  considering for the Rust port (src/dst are both known at call time), as
+  a separate, independent improvement.
+- ~~`driver.py`'s parallelized seed loops only snapshotted `random.
+  getstate()` per seed, not `node_input_connect` -- since that dict is
+  shared/mutable and progressively re-shuffled by every seed in the
+  preamble, and all `seed_step` `root_state`s are built before any of them
+  are dispatched to the pool, every seed's `root_state.input_connect` ended
+  up referencing the dict's *final*, fully-shuffled-by-every-seed state
+  instead of the state that existed at its own point in the sequence.~~
+  **Found and fixed 2026-09-22 (same pass) -- see `docs/REFACTOR_LOG.md`'s
+  dated entry.** Confirmed via a mathematical contradiction: `dj_16`
+  (previously the most rock-solid exact-equality golden in this whole
+  migration) got a *worse* result at `seed_step=5` than `seed_step=2`,
+  which is impossible under a correct "max reward across all tried seeds"
+  reduction since the 5-seed set is a superset of the 2-seed set. Fix:
+  snapshot a per-seed copy (`{k: list(v) for k, v in
+  node_input_connect.items()}`) right after that seed's own shuffle, at
+  all 8 seed-loop sites, and use the snapshot (not the live, still-
+  mutating dict) for that seed's `root_state` and `priority_keys` lookups.
+  Verified: `dj_16` at `seed_step=5` now gives `810` (better than `891`,
+  as required); `seed_step=2` unchanged at `891`; fast regression subset
+  unaffected. This bug was latent at `seed_step=2` too (just not large
+  enough to flip `dj_16`'s specific outcome), so any benchmark result
+  captured after parallelization landed (commit `dc3a087`) and before this
+  fix should be treated with appropriate caution if it becomes load-
+  bearing again.

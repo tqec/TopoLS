@@ -1,0 +1,73 @@
+== [Wed Sep 23 12:20:07 AM EDT 2026] bv_16 ==
+Executing bv_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 6
+Space-time volume: 486.0
+Time: 6
+Space: 81.0
+Compilation time: 12.984310626983643
+== [Wed Sep 23 12:20:20 AM EDT 2026] dj_16 ==
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 11
+Space-time volume: 891.0
+Time: 11
+Space: 81.0
+Compilation time: 23.31816792488098
+== [Wed Sep 23 12:20:44 AM EDT 2026] grover_6 ==
+Executing grover_6 benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 7.0 z_length: 658
+Space-time volume: 23030.0
+Time: 658
+Space: 35.0
+Compilation time: 503.2862596511841
+== [Wed Sep 23 12:29:14 AM EDT 2026] qft_16 ==
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 482
+Space-time volume: 39042.0
+Time: 482
+Space: 81.0
+Compilation time: 1188.157639503479
+== [Wed Sep 23 12:49:16 AM EDT 2026] qpe_16 ==
+Executing qpe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 524
+Space-time volume: 42444.0
+Time: 524
+Space: 81.0
+Compilation time: 1353.6370646953583
+== [Wed Sep 23 01:12:06 AM EDT 2026] vqe_16 ==
+Executing vqe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 52
+Space-time volume: 4212.0
+Time: 52
+Space: 81.0
+Compilation time: 267.14955735206604
+== [Wed Sep 23 01:16:34 AM EDT 2026] ghz_16 ==
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 3
+Space-time volume: 243.0
+Time: 3
+Space: 81.0
+Compilation time: 6.379640340805054
+== [Wed Sep 23 01:16:41 AM EDT 2026] wstate_16 ==
+Executing wstate_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 105
+Space-time volume: 8505.0
+Time: 105
+Space: 81.0
+Compilation time: 150.62925577163696
+== [Wed Sep 23 01:19:13 AM EDT 2026] qaoa_16 ==
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 61
+Space-time volume: 4941.0
+Time: 61
+Space: 81.0
+Compilation time: 247.3286852836609
+== [Wed Sep 23 01:23:21 AM EDT 2026] full experiment done ==

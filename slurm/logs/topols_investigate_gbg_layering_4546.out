@@ -1,0 +1,56 @@
+=== Variant A: gate-by-gate's ACTUAL current preprocessing (no zx_optimization) ===
+
+--- Variant A (no zx_optimization) ---
+layer counts: Counter({1: 16, 4: 16, 6: 16, 7: 16, 2: 16, 3: 16, 5: 16, 8: 16})
+layer 1: raw nodes in this layer=16, with-type nodes=0, sample raw node ids=[0, 1, 2, 3, 4, 5]
+    node 0: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 1: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 2: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 3: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 4: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 5: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+layer 2: raw nodes in this layer=16, with-type nodes=16, sample raw node ids=[1991, 1992, 1993, 2383, 2390, 2397]
+    node 1991: type_raw=3, node_type_convert=3, row=1, qubit=9
+    node 1992: type_raw=3, node_type_convert=3, row=1, qubit=14
+    node 1993: type_raw=3, node_type_convert=3, row=1, qubit=15
+    node 2383: type_raw=1, node_type_convert=2, row=0.875, qubit=0
+    node 2390: type_raw=1, node_type_convert=2, row=0.875, qubit=1
+    node 2397: type_raw=1, node_type_convert=2, row=0.875, qubit=2
+
+=== Variant B: gate-by-gate preprocessing WITH zx_optimization added (hypothesis test) ===
+
+--- Variant B (with zx_optimization) ---
+layer counts: Counter({1: 16, 4: 16, 6: 16, 7: 16, 2: 16, 3: 16, 5: 16, 8: 16})
+layer 1: raw nodes in this layer=16, with-type nodes=0, sample raw node ids=[0, 1, 2, 3, 4, 5]
+    node 0: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 1: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 2: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 3: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 4: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+    node 5: type_raw=0, node_type_convert=-1, row=0, qubit=n/a
+layer 2: raw nodes in this layer=16, with-type nodes=16, sample raw node ids=[1991, 1992, 1993, 2383, 2390, 2397]
+    node 1991: type_raw=3, node_type_convert=3, row=1, qubit=9
+    node 1992: type_raw=3, node_type_convert=3, row=1, qubit=14
+    node 1993: type_raw=3, node_type_convert=3, row=1, qubit=15
+    node 2383: type_raw=1, node_type_convert=2, row=0.875, qubit=0
+    node 2390: type_raw=1, node_type_convert=2, row=0.875, qubit=1
+    node 2397: type_raw=1, node_type_convert=2, row=0.875, qubit=2
+
+=== Variant C: the MAIN pipeline's own layer_labeling() (for comparison) ===
+
+--- Variant C (main pipeline) ---
+layer counts: Counter({104: 19, 158: 19, 261: 19, 56: 18, 83: 18, 84: 18, 87: 18, 138: 18, 198: 18, 212: 18, 274: 18, 281: 18, 298: 18, 25: 17, 37: 17, 50: 17, 51: 17, 65: 17, 76: 17, 88: 17, 109: 17, 110: 17, 113: 17, 139: 17, 142: 17, 148: 17, 152: 17, 159: 17, 169: 17, 173: 17, 178: 17, 223: 17, 224: 17, 254: 17, 258: 17, 259: 17, 262: 17, 270: 17, 275: 17, 282: 17, 293: 17, 304: 17, 305: 17, 314: 17, 318: 17, 319: 17, 329: 17, 333: 17, 336: 17, 352: 17, 383: 17, 387: 17, 0: 16, 1: 16, 2: 16, 3: 16, 4: 16, 5: 16, 6: 16, 7: 16, 8: 16, 9: 16, 10: 16, 11: 16, 12: 16, 13: 16, 14: 16, 15: 16, 16: 16, 17: 16, 18: 16, 19: 16, 20: 16, 21: 16, 22: 16, 23: 16, 24: 16, 26: 16, 27: 16, 28: 16, 29: 16, 30: 16, 31: 16, 32: 16, 33: 16, 34: 16, 35: 16, 36: 16, 38: 16, 39: 16, 40: 16, 41: 16, 42: 16, 43: 16, 44: 16, 45: 16, 46: 16, 47: 16, 48: 16, 49: 16, 52: 16, 53: 16, 54: 16, 55: 16, 57: 16, 58: 16, 59: 16, 60: 16, 61: 16, 62: 16, 63: 16, 64: 16, 66: 16, 67: 16, 68: 16, 69: 16, 70: 16, 71: 16, 72: 16, 73: 16, 74: 16, 75: 16, 77: 16, 78: 16, 79: 16, 80: 16, 81: 16, 82: 16, 85: 16, 86: 16, 89: 16, 90: 16, 91: 16, 92: 16, 93: 16, 94: 16, 95: 16, 96: 16, 97: 16, 98: 16, 99: 16, 100: 16, 101: 16, 102: 16, 103: 16, 105: 16, 106: 16, 107: 16, 108: 16, 111: 16, 112: 16, 114: 16, 115: 16, 116: 16, 117: 16, 118: 16, 119: 16, 120: 16, 121: 16, 122: 16, 123: 16, 124: 16, 125: 16, 126: 16, 127: 16, 128: 16, 129: 16, 130: 16, 131: 16, 132: 16, 133: 16, 134: 16, 135: 16, 136: 16, 137: 16, 140: 16, 141: 16, 143: 16, 144: 16, 145: 16, 146: 16, 147: 16, 149: 16, 150: 16, 151: 16, 153: 16, 154: 16, 155: 16, 156: 16, 157: 16, 160: 16, 161: 16, 162: 16, 163: 16, 164: 16, 165: 16, 166: 16, 167: 16, 168: 16, 170: 16, 171: 16, 172: 16, 174: 16, 175: 16, 176: 16, 177: 16, 179: 16, 180: 16, 181: 16, 182: 16, 183: 16, 184: 16, 185: 16, 186: 16, 187: 16, 188: 16, 189: 16, 190: 16, 191: 16, 192: 16, 193: 16, 194: 16, 195: 16, 196: 16, 197: 16, 199: 16, 200: 16, 201: 16, 202: 16, 203: 16, 204: 16, 205: 16, 206: 16, 207: 16, 208: 16, 209: 16, 210: 16, 211: 16, 213: 16, 214: 16, 215: 16, 216: 16, 217: 16, 218: 16, 219: 16, 220: 16, 221: 16, 222: 16, 225: 16, 226: 16, 227: 16, 228: 16, 229: 16, 230: 16, 231: 16, 232: 16, 233: 16, 234: 16, 235: 16, 236: 16, 237: 16, 238: 16, 239: 16, 240: 16, 241: 16, 242: 16, 243: 16, 244: 16, 245: 16, 246: 16, 247: 16, 248: 16, 249: 16, 250: 16, 251: 16, 252: 16, 253: 16, 255: 16, 256: 16, 257: 16, 260: 16, 263: 16, 264: 16, 265: 16, 266: 16, 267: 16, 268: 16, 269: 16, 271: 16, 272: 16, 273: 16, 276: 16, 277: 16, 278: 16, 279: 16, 280: 16, 283: 16, 284: 16, 285: 16, 286: 16, 287: 16, 288: 16, 289: 16, 290: 16, 291: 16, 292: 16, 294: 16, 295: 16, 296: 16, 297: 16, 299: 16, 300: 16, 301: 16, 302: 16, 303: 16, 306: 16, 307: 16, 308: 16, 309: 16, 310: 16, 311: 16, 312: 16, 313: 16, 315: 16, 316: 16, 317: 16, 320: 16, 321: 16, 322: 16, 323: 16, 324: 16, 325: 16, 326: 16, 327: 16, 328: 16, 330: 16, 331: 16, 332: 16, 334: 16, 335: 16, 337: 16, 338: 16, 339: 16, 340: 16, 341: 16, 342: 16, 343: 16, 344: 16, 345: 16, 346: 16, 347: 16, 348: 16, 349: 16, 350: 16, 351: 16, 353: 16, 354: 16, 355: 16, 356: 16, 357: 16, 358: 16, 359: 16, 360: 16, 361: 16, 362: 16, 363: 16, 364: 16, 365: 16, 366: 16, 367: 16, 368: 16, 369: 16, 370: 16, 371: 16, 372: 16, 373: 16, 374: 16, 375: 16, 376: 16, 377: 16, 378: 16, 379: 16, 380: 16, 381: 16, 382: 16, 384: 16, 385: 16, 386: 16, 388: 16, 389: 16, 390: 16, 391: 16, 392: 16, 393: 16, 394: 16, 395: 16, 396: 16, 397: 16, 398: 16, 399: 16, 400: 16, 401: 16, 402: 16, 403: 16, 404: 16, 405: 16, 406: 16, 407: 16, 408: 16})
+layer 1: raw nodes in this layer=16, with-type nodes=16, sample raw node ids=[1991, 1992, 1993, 2383, 2597, 2759]
+    node 1991: type_raw=3, node_type_convert=3, row=1, qubit=9
+    node 1992: type_raw=3, node_type_convert=3, row=1, qubit=14
+    node 1993: type_raw=3, node_type_convert=3, row=1, qubit=15
+    node 2383: type_raw=1, node_type_convert=2, row=1.4465116279069767, qubit=0
+    node 2597: type_raw=1, node_type_convert=2, row=1.4478527607361964, qubit=1
+    node 2759: type_raw=1, node_type_convert=2, row=1.4076433121019107, qubit=2
+layer 2: raw nodes in this layer=16, with-type nodes=16, sample raw node ids=[21, 1994, 2384, 2598, 2760, 2916]
+    node 21: type_raw=1, node_type_convert=0, row=3, qubit=14
+    node 1994: type_raw=3, node_type_convert=3, row=2, qubit=15
+    node 2384: type_raw=1, node_type_convert=2, row=2.8930232558139535, qubit=0
+    node 2598: type_raw=1, node_type_convert=2, row=2.895705521472393, qubit=1
+    node 2760: type_raw=1, node_type_convert=2, row=2.8152866242038215, qubit=2
+    node 2916: type_raw=1, node_type_convert=2, row=2.7222222222222223, qubit=3

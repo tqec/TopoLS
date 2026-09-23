@@ -1,0 +1,16 @@
+=== ghz_16, -s 5, -t 100 (huge time_bound, rule out wall-clock timing) ===
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 4
+Space-time volume: 324.0
+Time: 4
+Space: 81.0
+Compilation time: 204.96314358711243
+=== ghz_16, -s 5, -t 100, repeat ===
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 4
+Space-time volume: 324.0
+Time: 4
+Space: 81.0
+Compilation time: 204.92244791984558

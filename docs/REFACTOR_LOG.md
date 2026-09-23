@@ -11,6 +11,636 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-22 — Critical parallelization bug found and fixed: `node_input_connect` wasn't snapshotted per seed, only the RNG state was
+
+User asked to raise `seed_step` from 2 to 5 (with `--cpus-per-task` raised
+from 4 to 6 to match) to test whether wall-clock time stays flat when
+there are enough dedicated cores for every seed to run truly concurrently
+-- and, separately, asked a probing conceptual question about why more
+seeds/time/iterations don't seem to improve quality (see the in-context
+answer about `moves()`'s `rollout=True`/`num==1` branch forcing
+`pmove_1=[(0,0,1)]`, making the rollout policy almost entirely
+deterministic -- not touched by this fix, a separate, structural
+observation).
+
+**`dj_16` -- previously the single most rock-solid, exact-equality golden
+benchmark in this entire migration effort -- broke at `seed_step=5`**:
+`z=18, volume=1458` instead of the always-reproduced `z=11, volume=891`,
+confirmed reproducible on a second independent run (not a fluke). This is
+mathematically impossible under a correct implementation: seeds
+`{0,1,2,3,4}` (at `seed_step=5`) are a strict superset of `{0,1}` (at
+`seed_step=2`), and the reduction takes `max(reward)` (`min(volume)`)
+across all tried seeds -- trying *more* seeds can only find an equal-or-
+better result, never worse. A worse result at higher `seed_step` is a
+correctness bug, not an unlucky search outcome.
+
+**Root cause**: the faithful-replay parallelization design (see the
+earlier "Phase 2 parallelization" entries) correctly snapshots
+`random.getstate()` per seed before dispatching to the pool, but never
+snapshotted `node_input_connect` the same way. That dict is shared,
+mutable, and progressively re-shuffled in place by *every* seed in the
+preamble loop (`for key in node_input_connect: random.shuffle(...)`) --
+by design, faithfully replaying the original serial code's cross-seed
+accumulation. But `root_state = EmbeddingState(..., input_connect=
+node_input_connect, ...)` bound each seed's state to *that same dict
+object*, not a copy. In the serial version this was harmless (each
+seed's `mcts()` call completed before the next seed's shuffle ran). In
+the parallel version, all `seed_step` `root_state`s are built first
+(cheap preamble, sequential) and only *then* dispatched to the pool --
+so by dispatch time, `node_input_connect` has already been shuffled by
+*every* seed, and *all* `root_state`s end up referencing the same, fully-
+shuffled-`seed_step`-times final dict, instead of each one seeing the
+dict as it existed at its own point in the sequence. At `seed_step=2`
+this drift apparently wasn't large enough to change `dj_16`'s outcome
+(explaining why it looked fine in all this session's `-s 2` testing); at
+`seed_step=5` it clearly was.
+
+**Fix**: at all 8 seed-loop sites in `driver.py`, added
+`node_input_connect_seed = {k: list(v) for k, v in
+node_input_connect.items()}` immediately after that seed's own shuffle
+call, and replaced every subsequent read of `node_input_connect` within
+that seed's iteration (both the `priority_keys` port lookups and the
+`EmbeddingState(..., input_connect=...)` construction) with this per-seed
+snapshot. The shared dict is still mutated in place exactly as before
+(preserving the intended cross-seed accumulation and its faithful-replay
+guarantee for the RNG side) -- only the *use* of it inside each seed's
+own `root_state` is now decoupled from what *later* seeds do to it
+afterward.
+
+**Verification**: `dj_16` at `seed_step=5` (job 4557) now gives
+`z=10, volume=810` -- *better* than the `seed_step=2` value of `891`, as
+mathematically required, not worse. `seed_step=2` (same job, control) is
+unchanged at `891`. Fast regression subset (job 4558, default `-s 2`
+config) PASSED at exact equality -- confirms zero behavior change for the
+existing, already-validated `seed_step=2` configuration; this bug was
+latent at `-s 2` too (just not large enough to flip `dj_16`'s specific
+outcome) and is now fully closed for any `seed_step`.
+
+**Scope of exposure**: every benchmark run through the parallelized seed
+loops since parallelization landed (commit `dc3a087`) was potentially
+affected, proportional to how many multi-element `node_input_connect`
+values exist and how much `seed_step` accumulation drift occurred -- not
+just `dj_16`, and not just at `seed_step=5`. Cannot retroactively say
+which specific past results in this log were or weren't affected without
+re-running each one; treat any result captured between the
+parallelization commit and this fix with appropriate caution if it's ever
+load-bearing again (e.g. `qaoa_16`'s bisection two entries below used
+`c3d0235`, which *predates* parallelization entirely, so that specific
+finding is unaffected by this bug).
+
+`docs/ARCHITECTURE.md` updated with a new bug entry (found and fixed in
+the same pass, not left open).
+
+---
+
+## 2026-09-22 — `qaoa_16`'s volume "regression" bisected: predates all of this session's changes, not caused by them
+
+User pushed back on the earlier framing (treating `wstate_16`'s ~3% and
+`qaoa_16`'s ~12% volume increases as "probably jitter, worth
+re-checking") -- specifically flagged `qaoa_16`'s +11.9% as too large to
+hand-wave and asked for a direct causal investigation, not more jitter
+sampling.
+
+**Method**: created a `git worktree` at commit `c3d0235` ("improve python
+code" -- Tier 0/1 cache + `astar` inlining already landed, but *before*
+seed-loop parallelization, the P1 A* stale-heap-entry fix, and the entire
+P0-P4 unified debugging pass), and ran `qaoa_16` there with the identical
+production CLI config, to isolate whether the regression predates or
+postdates that commit. Chose a worktree specifically to avoid any risk to
+the current uncommitted work (no `git stash`/checkout on the main tree).
+
+**Result**: `c3d0235`'s `qaoa_16` gives **`z=63, volume=5103`** -- *not*
+the golden value (`4779`), and *not* job 4539's value (`5346`), but
+matching the two independent repeat runs on current code (job 4553,
+runs 1 and 2, both `5103`). This means the "regression" is **not caused by
+any change made this session** -- it was already present at `c3d0235`,
+before parallelization, before the P1 fix, before P0-P4. The golden value
+of `4779` was apparently captured on a lucky, atypical draw of `qaoa_16`'s
+inherent run-to-run variance (already known-documented as non-
+deterministic), not a representative baseline.
+
+**Also confirmed while investigating**: `wstate_16` reproduced `8829`
+identically on two independent repeat runs (job 4553) -- fully stable
+under the current code, *not* jitter. Its `~3.8%` change from golden is
+real and reproducible, but the user judged this magnitude acceptable and
+asked to prioritize `qaoa_16` first; `wstate_16`'s cause (whether it also
+predates this session's changes, like `qaoa_16`, or is a genuine
+Tier-1/P1-driven effect) is not yet bisected.
+
+**Practical takeaway for future volume comparisons**: for the four
+benchmarks already known to be search-bound/non-deterministic
+(`grover_6`/`qft_16`/`qpe_16`/`qaoa_16`), a single before/after volume
+comparison is not sufficient evidence of a regression by itself -- always
+either (a) repeat the same config 2+ times to check the observed spread
+before concluding a change caused a shift, or (b) bisect directly against
+an untouched-code checkout via a worktree, as done here, rather than
+trusting a single golden-vs-new diff.
+
+Cleaned up the `c3d0235` worktree afterward (`git worktree remove`).
+
+---
+
+## 2026-09-22 — Confirmed: the gate-by-gate off-by-one silently affected 3 of the 7 benchmarks in the P0 forced-failure validation
+
+User raised an important, specific concern after the entry below landed:
+did the P0 batch test (`-b 2 -i 1 -t 0.5`, jobs 4527/4535 -- used to
+validate the `block_state`/`pre_state` `UnboundLocalError` fixes) actually
+get silently truncated by *this* bug too, the same way `qft_16`'s full-
+experiment run was? Those jobs only checked "exit code 0, no traceback" --
+never compared actual volume/z values against anything, so a silent
+truncation would have looked identical to a real success.
+
+**Reasoned about the trigger condition first, then verified empirically
+rather than trusting either alone.** The off-by-one in
+`layer_labeling_block_vanilla` only produces a *completely empty* layer 1
+when the re-partitioned block's own row 0 consists of true circuit-
+boundary vertices (`node_type_convert() == -1`) -- which is only the case
+when gate-by-gate is re-processing **block 0** specifically (`graph_ =
+circuit.to_graph()` is freshly re-extracted from the *original* circuit
+every time gate-by-gate fires, so its row 0 is always the true qubit
+input boundaries -- but `block_range` restricts `layer_labeling_block_
+vanilla` to only that block's own row window, so for block 1+, the
+window's own first row is already real, previously-embedded gate nodes,
+not boundary vertices). So the failure mode should only manifest when
+gate-by-gate is triggered on block 0, not on later blocks.
+
+**Verified by literally re-running the same jobs** with all three fixes
+in place (job 4552) and diffing against the pre-fix values (jobs
+4527/4535):
+
+| benchmark | pre-fix (job 4527/4535) | post-fix (job 4552) | affected? |
+|---|---|---|---|
+| dj_16 | 2349/z=29 | 2349/z=29 | no |
+| ghz_16 | 2025/z=25 | 2025/z=25 | no |
+| qft_16 | 65124/z=804 | 64395/z=795 | **yes** |
+| qpe_16 | 73062/z=902 | 72981/z=901 | **yes** |
+| vqe_16 | 5913/z=73 | 5589/z=69 | **yes** |
+| wstate_16 | 16200/z=200 | 16200/z=200 | no |
+| qaoa_16 | 8181/z=101 | 8181/z=101 | no |
+
+Confirms the reasoning: `qft_16`/`qpe_16`/`vqe_16` were silently affected
+(their pre-fix "successful" results were quietly wrong, truncated exactly
+like the full-experiment `qft_16` case); `dj_16`/`ghz_16`/`wstate_16`/
+`qaoa_16` were not (whatever block(s) gate-by-gate hit for these,
+under this specific `-b 2` config, weren't block 0).
+
+**Correction to the two P0 entries below**: their "gate-by-gate runs
+without crashing" validation claim is still true as far as it goes (no
+`UnboundLocalError`, confirming those specific fixes), but should *not*
+be read as "gate-by-gate produced correct results" for `qft_16`/`qpe_16`/
+`vqe_16` in those specific runs -- it didn't, for the separate reason
+documented in this entry and the one above. The P0 fixes themselves
+remain correct and unaffected by this; this is strictly about not
+overclaiming what job 4527/4535 validated.
+
+---
+
+## 2026-09-22 — Gate-by-gate fallback's degenerate layering: root-caused and fixed (3 compounding bugs)
+
+Follow-up to the entry immediately below (which found the bug but hadn't
+root-caused it yet). Continued the investigation per the user's explicit
+"先查bug" direction, reading code and building targeted diagnostics rather
+than guessing.
+
+**Bug 1 -- `layer_labeling_block_vanilla`'s off-by-one indexing**
+(`zx_transform/layering.py`). Wrote a diagnostic
+(`docs/investigate_gate_by_gate_layering.py`) reproducing gate-by-gate's
+exact preprocessing for `qft_16`'s block 0 (`[0,7]`) in isolation. Found:
+`layer_labeling_block_vanilla` numbers layers via `row_to_layer = {row:
+idx + 1 ...}` -- 1-indexed, putting boundary/input nodes at layer 1. The
+main pipeline's `layer_labeling()` starts its BFS at `max_label = -1`
+(so `start_label = 0`), putting boundary nodes at layer 0 and the first
+real gate layer at layer 1. Confirmed directly by comparing the two
+side by side (same circuit, same nodes) -- the main pipeline's layer 1
+holds the real gate nodes (e.g. node 1991, a real T-gate); gate-by-gate's
+own layer 1 (pre-fix) holds only the 16 boundary nodes, which
+`layer_info()` filters out entirely (`node_type_convert() == -1`), so
+gate-by-gate's layer 1 always comes back with `node_output_connect ==
+{}}`, hitting driver.py's "no more output, finalize and return" branch on
+its very first sub-layer. (Ruled out an alternative hypothesis first --
+tested whether adding a missing `zx_optimization()` call to gate-by-gate's
+preprocessing would change this; it didn't, confirming the off-by-one,
+not a missing optimization pass, was the actual cause.) **Fix**: changed
+`row_to_layer = {row: idx + 1 ...}` to `{row: idx ...}` (0-indexed).
+
+**Bug 2 -- `EmbeddingState.reward()`'s empty-sequence crash**
+(`embedding/state.py`). Fix 1 alone let gate-by-gate reach real MCTS for
+the first time ever, immediately surfacing a second, previously-latent
+bug: `reward()` computes `num_ports = len(self.output_connect)`, calls
+`auto_ports(num_ports, ...)` to generate ceiling-routing candidate points,
+then does `x_min = min(xs)` etc. on the result. When `num_ports == 0` (a
+legitimate terminal state -- e.g. a circuit's last real layer, or any
+layer with nothing left to route to the ceiling), `auto_ports` correctly
+returns no points, but `xs`/`ys` are then empty and `min()`/`max()` raise
+`ValueError: min() arg is an empty sequence`. Confirmed via the full
+traceback (through the `multiprocessing` worker) that this fires from
+`rollout()` calling `reward()` on a genuinely terminal state reached via
+real MCTS search, not a malformed state. Checked whether `x_min`/`x_max`/
+`y_min`/`y_max` matter beyond the immediate ceiling-port section before
+picking a fix -- they do (also used later in the same function for
+T-gate exit routing, `route_single_T_to_boundary`, which is independent
+of whether this layer has output ports) -- so an arbitrary default like 0
+would have been wrong. **Fix**: when `num_ports == 0`, fall back to
+`self.x_min_floor`/`self.x_max_floor`/`self.y_min_floor`/
+`self.y_max_floor` (the embedding's own fixed floor bounds, already
+available) instead of deriving bounds from an empty candidate set.
+
+**Bug 3 -- `driver.py`'s gate-by-gate loop bound, stale after fix 1**.
+After fixes 1+2, `qft_16` *still* returned early (`z=2` again, same
+`2/408` outer progress) -- but without crashing this time, so more
+tracing was needed. Added debug prints tracing every inner `j` iteration:
+confirmed gate-by-gate now correctly processed all 8 real sub-layers of
+block 0 (`j=1` through `j=8`), then hit "no more output connections" at
+`j=8` with **zero** nodes of any type -- meaning `j=8` didn't exist in the
+now-0-indexed layer labels at all (valid layers are now `0..7`, count
+`len(rows_)=8`). Root cause: `driver.py`'s inner loop was
+`for j in range(1, len(rows_)+1):` (visits `1..len(rows_)` inclusive) --
+correct under the *old* 1-indexed scheme (real layers `1..len(rows_)`,
+count `len(rows_)`), but one layer too many under the *new* 0-indexed
+scheme (real layers `1..len(rows_)-1`), which should exactly mirror the
+outer `for i in tqdm(range(1, len(rows))):` loop's convention (no `+1`).
+Worse: hitting "no more output" inside gate-by-gate does a hard `return`
+from `operation()` *entirely*, not "this block is done, move to the
+next" -- so reaching this branch one layer past the block's real end
+prematurely ended the *whole compile*, discarding the correctly-processed
+block 0 and everything after it. **Fix**: loop bound changed to
+`range(1, len(rows_))`; the three "is this the last layer of this block"
+checks (`if j == len(rows_):`, used to force-mark the last layer as
+"has output" so the block-to-block transition doesn't misfire) changed to
+`if j == len(rows_) - 1:` to match.
+
+**Validation**: re-ran `qft_16` with `-b0 0` after each of the three fixes
+in turn (jobs 4547, 4548, 4549, 4550) -- confirmed each fix's specific
+symptom was resolved before moving to the next, rather than changing all
+three at once and hoping. Final run (job 4550) processed all 408 layers
+correctly (previously stopped at 2), landing on
+`(x=9, y=9, z=493, volume=39933, compile time=1229.07s)` -- ~1.9% higher
+than the old `-b0 1`-workaround golden (`484, 39204`), a plausible,
+expected difference from the different block structure (not evidence of
+a remaining bug). Fast regression subset re-run after all three fixes
+(job 4551): `bv_16`/`dj_16`/`ghz_16` PASSED at exact equality -- confirms
+none of these three fixes touch the normal (non-fallback) path at all.
+
+**`docs/ARCHITECTURE.md` updated**: the bug entry struck through with a
+"Fixed" note describing all three sub-bugs and the validation. Not yet
+updating `tests/test_regression.py`'s `qft_16` `GOLDENS` entry or
+`BENCH_CONFIGS`'s `-b0` value for `qft_16` -- that's a deliberate,
+separate follow-up (need to decide whether to keep `-b0 0` as the new
+standard config, and re-run the full 9-benchmark suite one more time now
+that `qft_16` is fixed, before committing to a new golden).
+
+---
+
+## 2026-09-22 — New bug found: gate-by-gate fallback's re-partitioning produces a degenerate layering for real block ranges
+
+Follow-up to the previous entry (removing `qft_16`'s `-b0 1` workaround).
+Ran the full 9-benchmark experiment (job 4539, `slurm/run_full_experiment.
+slurm`) with the workaround removed. 8 of 9 benchmarks look sane (see
+below); `qft_16` came back with `x=9, y=9, z=2, volume=162` in 9.8s --
+suspiciously tiny for a 16-qubit QFT circuit (`bv_16`/`dj_16`, much
+simpler algorithms, have z=6/z=11). Re-ran `qft_16` alone (job 4540) and
+confirmed via its tqdm bar: only 2 of an expected 408 layers were
+processed before the process returned a result. This is a **new,
+previously-undiscovered bug**, not a symptom of anything already on the
+P0-P4 list.
+
+**Traced with temporary debug prints** (added, used, removed --
+confirmed via `git diff | grep -F DEBUG` returning nothing afterward):
+normal MCTS + ceiling-retry fail at layer `i=3` (a real, if unglamorous,
+search failure -- not investigated further, not the point), landing in
+gate-by-gate fallback for block 0, `block_range_rows=[0, 7]` (a real,
+~8-layer block, unlike the workaround's forced-tiny `[0,1]`). Gate-by-gate
+re-partitions that row range via `layer_labeling_block_vanilla`/
+`idling_nodes_insertion_block_vanilla`, getting `len(rows_)=8` sub-layers
+-- but its own sub-layer `j=1` already has `node_output_connect == {}`,
+immediately hitting the "no more output connections, finalize and return"
+branch. Root cause is inside those two "_vanilla" re-partitioning
+functions (`zx_transform/layering.py`), not yet investigated further.
+
+**Why this was never caught before**: this is the first time gate-by-gate
+fallback has ever been exercised on a *real, nontrivial* block range in
+this entire migration effort. The P0 forced-failure batch test (`-b 2 -i 1
+-t 0.5`, jobs 4527/4535) used `-b 2`, so every block was already tiny by
+construction -- it validated that gate-by-gate *runs without crashing*,
+but every block it ever saw was degenerate-small like the `-b0 1`
+workaround's `[0,1]`, so it could never have hit this particular failure
+mode (which needs a block big enough to have multiple genuinely different
+sub-layers). `qft_16`'s `-b0 1` workaround, it turns out, was doing double
+duty: avoiding the P0 crash *and* avoiding ever exercising gate-by-gate on
+a real block range at all. Logged in `docs/ARCHITECTURE.md`'s bug list as
+a new, unfixed entry -- flagged as more insidious than a crash, since it
+returns a plausible-looking (wrong) answer silently.
+
+**Not fixed yet** -- root-causing `layer_labeling_block_vanilla`/
+`idling_nodes_insertion_block_vanilla` is a separate, follow-up
+investigation.
+
+**The other 8 benchmarks from job 4539** (compared against
+`tests/test_regression.py`'s pre-existing `GOLDENS`, captured at various
+earlier points this session):
+
+| benchmark | golden (x,y,z,vol) | job 4539 (x,y,z,vol) | change |
+|---|---|---|---|
+| bv_16 | 9,9,6,486 | 9,9,6,486 | none |
+| dj_16 | 9,9,11,891 | 9,9,11,891 | none |
+| ghz_16 | 9,9,3,243 | 9,9,3,243 | none |
+| grover_6 | 5,7,663,23205 | 5,7,637,22295 | -3.9% volume (consistent with the P1 A* fix) |
+| qpe_16 | 9,9,525,42525 | 9,9,526,42606 | ~flat (qpe_16 already documented non-deterministic) |
+| vqe_16 | 9,9,52,4212 | 9,9,49,3969 | -5.8% volume |
+| wstate_16 | 9,9,105,8505 | 9,9,109,8829 | +3.8% volume -- **not previously flagged non-deterministic; worth re-checking**, plausibly a legitimate P1-fix-driven change (P1 is deterministic and can affect any benchmark, not just the four already known to have wall-clock-jitter-driven non-determinism) rather than noise, but not yet confirmed either way |
+| qaoa_16 | 9,9,59,4779 | 9,9,66,5346 | +11.9% volume (qaoa_16 already documented non-deterministic) |
+
+**Compile-time comparison against job 4446** (the pre-Phase-2-optimization
+baseline, before any of this session's Tier 0/1/2 fixes, parallelization,
+or the P0-P4 unified debugging pass):
+
+| benchmark | job 4446 | job 4539 | speedup |
+|---|---|---|---|
+| bv_16 | 26.9s | 13.88s | 1.94x |
+| dj_16 | 56.9s | 23.80s | 2.39x |
+| grover_6 | 2366s | 682.56s | 3.47x |
+| qpe_16 | 3561s | 1498.70s | 2.38x |
+| vqe_16 | 474s | 165.65s | 2.86x |
+| ghz_16 | 12.8s | 6.60s | 1.94x |
+| wstate_16 | 689s | 152.24s | **4.53x** |
+| qaoa_16 | 506s | 259.04s | 1.95x |
+| qft_16 | 3106s | 9.78s | not comparable (invalid, premature exit) |
+
+Speedups range 1.9x-4.5x across the 8 valid benchmarks. Noting `wstate_16`
+has both the largest speedup *and* the volume regression flagged above --
+plausibly related (worth checking together), not yet confirmed.
+
+Not updating `GOLDENS` yet -- waiting on the gate-by-gate fix (for
+`qft_16`) and a `wstate_16` re-check before treating any of these as new
+baselines.
+
+---
+
+## 2026-09-22 — `qft_16`'s `-b0 1` was a workaround for the now-fixed P0 bug, not a real requirement
+
+While setting up the full 9-benchmark "Full optimization" experiment
+(`docs/exp.py`'s `commands_1`, run via `slurm/run_full_experiment.slurm`)
+to see this session's cumulative effect, noticed `qft_16` is the only
+benchmark using `-b0 1` (forces `find_block()` to make block 0 a tiny
+2-row block, via `special_benchmark=True`). Initially assumed this was
+unrelated to the P0 fix (block-0-failure `UnboundLocalError`) since it
+operates on a different mechanism (static circuit partitioning vs.
+runtime MCTS failure) -- **user corrected this**: `-b0 1` was specifically
+introduced as a workaround to keep block 0 small enough that it would
+(in practice) never fail its own MCTS/ceiling-retry, precisely to avoid
+ever hitting the P0 crash. It's not a property `qft_16`'s circuit
+actually needs. Now that P0 is fixed, tested `run_full_experiment.slurm`
+with `qft_16` changed to `-b0 0`, matching every other benchmark.
+
+**Consequence**: `tests/test_regression.py`'s `qft_16` golden value was
+captured under the old `-b0 1` config -- once results come in under
+`-b0 0`, that golden (and `BENCH_CONFIGS`'s `qft_16` entry) will need
+updating to match the new, workaround-free config. Not done yet --
+waiting on the full-experiment run's actual result first.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P4: `defaultdict` import + dead-code cleanup
+
+Last items on the prioritized bug list.
+
+**`export/bgraph.py`'s `find_duplicate_geometric_edges()`**: added
+`defaultdict` to the existing `from collections import Counter` line.
+Still confirmed via repo-wide grep that nothing calls this function
+anywhere, so this was latent and harmless either way -- fixed the import
+regardless since we're already in the unified debugging pass.
+
+**`compute_center_of_mass`/`compute_center_of_space`**: turned out this
+bug-list line was stale -- grepped and confirmed these functions don't
+exist anywhere in the current codebase. They were *dropped* (not moved)
+during the Phase 1a `geometry.py` split (see that dated entry, which
+already says "Dropped (not moved)"), but `docs/ARCHITECTURE.md`'s bug
+list was never updated to reflect it. No code change needed; just
+corrected the stale doc.
+
+**`reward()`'s dead `paths` accumulator** (`embedding/state.py`): `paths =
+list(self.embed_path)` and one `paths.append(tuple(path))` inside the
+ceiling-routing loop, confirmed via `grep` to never be read again before
+`reward()`'s `return -self.vol, new_t_track, occ_t_track, ceiling_track`.
+Deleted both lines -- pure dead code, zero behavior change (nothing else
+in the function referenced `paths`).
+
+**`tol_path_lift` in `basic_embedding`**: already removed as a natural
+side effect of the P3 `lifting_path` fix (it was one line above the code
+being touched anyway) -- see that dated entry.
+
+**Verification**: fast subset (job 4538) PASSED at exact equality
+(486/891/243).
+
+**This closes out the full prioritized bug list from the P0 entry.**
+Summary of the whole unified debugging pass today: 2 confirmed-and-fixed
+crashes (P0), 1 confirmed-and-fixed silent-quality bug with measurable
+improvement (P1, A*), 1 fixed-but-not-observed-triggering double-mutation
+risk (P2), 1 re-classified non-bug (P2, `color_switch`), 2 fixed-but-not-
+observed-triggering crashes in rarely-exercised fallback tiers (P3), and
+import/dead-code cleanup (P4). Every fix validated against the fast
+regression subset at exact equality; the ones with a real trigger path
+(P0, P1) were validated against an actual observed trigger, not just
+code-reading, per the user's explicit ask for extra care after the
+"independent seed" detour earlier this session.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P3 (second item): `lifting_path`'s `None`-unsafety in `basic_embedding`
+
+`routing/boundary.py`'s `lifting_path()` has no `return` at the end of its
+loop -- if the input path has no direction change at all (a perfectly
+straight candidate), it falls through and implicitly returns `None`. Its
+one caller (`embedding/fallback.py`'s `basic_embedding`, the deepest
+brute-force fallback tier) indexed into the result (`tol_path[0]`)
+unconditionally, right after the two other candidate-rejection checks in
+the same loop (`shortest_path_base` returning `None`; an occupancy check)
+that *do* correctly skip to the next `(target_1, target_2)` candidate.
+
+**Fix**: wrapped the success body in `if tol_path is not None:`, matching
+the existing nested-`if` candidate-rejection style used by the two checks
+right above it in the same function, rather than introducing a different
+control-flow idiom (e.g. `continue`). Bundled in: removed `tol_path_lift`,
+a local variable computed one line above and never read again (confirmed
+via `grep` -- this is the same dead-code item already flagged in `docs/
+ARCHITECTURE.md`'s P4 list; removing it here was a natural side effect of
+touching this exact line, not a separate deliberate P4 pass).
+
+**Verification**: fast subset (job 4537) PASSED at exact equality
+(486/891/243) -- `basic_embedding` is the deepest fallback tier and was
+never confirmed reached by any test this session (including the P0 fix's
+forced-failure batch), so this fix is verified-safe-for-the-common-path
+only, not verified-triggered -- same honesty caveat as the two P2/P3
+fixes before it.
+
+`docs/ARCHITECTURE.md` updated: struck through with a "Fixed 2026-09-22"
+note; the `tol_path_lift` dead-code line removed from the P4 list since
+it's gone now.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P3 (first item): Hadamard branch's mis-nested "second phase" loop
+
+`embedding/state.py`'s Case 3 (Hadamard, type 3) branch of `next_state()`
+had its "second phase" `inter_connect` loop nested one level inside the
+`for input in self.input_connect[node]:` loop, instead of being a sibling
+statement after it (as every other branch does, and as `docs/
+ARCHITECTURE.md` already documented). A Hadamard node with 2 input ports
+would run this loop twice, and the second `del track[src_node]` inside
+`_route_chain_src_to_chain_dst` would `KeyError`.
+
+**Fix**: de-indented the loop to be a sibling statement after the input-
+port loop, matching every other branch. Confirmed behavior-identical for
+the single-input-port case (the only one any benchmark has ever been
+observed to exercise): for exactly 1 input port, the loop's one-and-only
+iteration IS the last one, so the nested code already ran at this exact
+point with the exact same `pos`/`occ`/`track` state a sibling statement
+would see -- moving it changes nothing for n<=1, only fixes n>=2. Also
+confirmed the `input` variable used inside this block (as a `mask_node`
+argument) correctly picks up the loop's *final* value once de-indented --
+this is the same "loop variable outlives the loop" idiom already
+documented and relied on by `_route_input_ports` for the analogous
+sibling-statement pattern in every other branch, not an arbitrary choice.
+
+**Verification**: fast subset (job 4536) PASSED at exact equality
+(486/891/243) -- confirms zero behavior change for n<=1. As before, no
+benchmark has ever been confirmed to construct a two-input-port Hadamard
+node, so the n>=2 fix itself remains unverified by observation (only by
+the code-reading argument above) -- same honesty caveat as the `ceiling()`
+double-mutation fix.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P2 (second item): `color_switch` re-classified, not a bug
+
+Second P2 item was `color_switch` never re-verifying that its returned
+path actually resolves the color mismatch it was called to fix. Before
+implementing a runtime verification check, asked the user whether this
+was a real gap. User confirmed they had already theoretically verified
+the geometric offset-insertion transformation: whenever `color_switch`
+returns a non-`None` path, the color-consistency algebra *guarantees* the
+mismatch is resolved -- there is no case where it returns successfully
+but the color is still wrong. Given that, the caller's existing check
+(`if path_new is None: return None`, `state.py` -- treat non-`None` as
+success) is already sound, and adding a runtime re-verification would be
+pure redundant overhead, not a correctness fix. **No code changed.**
+Downgraded this item in `docs/ARCHITECTURE.md`'s bug list from "bug" to
+"verified-safe by design, documented."
+
+Two related properties noted in the same original bug-list entry are
+*separate* and deliberately NOT addressed in this pass: (a) it only tries
+the first geometrically feasible corner, not the one nearest the
+offending end -- a search-strategy choice, not a defect, and changing it
+would alter which valid path gets picked even in already-successful
+cases; (b) it can't repair straight or very short (<5-point) pipes at all
+-- plausibly a fundamental geometric constraint (no corner to pivot
+around), not an oversight. Both remain as documented limitations, not P2
+work items.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P2 (first item): `ceiling()`'s double-mutation risk
+
+Next on the prioritized bug list: `ceiling()` mutates its `best_state`
+argument in place, and the fallback ladder can structurally call
+`ceiling(pre_state, ...)` twice on the *same* `pre_state` before it's
+ever reassigned.
+
+**Traced the exact trigger, not just the structural possibility** (read
+all 5 call sites and the full `ceiling_flag` lifecycle in `driver.py`,
+plus all of `ceiling()`'s body in `embedding/ports.py`): the top-level
+ceiling-retry (fires when `ceiling_flag == 0`) calls `ceiling(pre_state,
+...)` once; if that also fails and falls into gate-by-gate, and gate-by-
+gate's own sub-layer `j==1` *succeeds* (which resets `ceiling_flag = 0` --
+a flag meant to track "did ceiling() already run on this pre_state,"
+conflated with "did this unrelated inner sub-step succeed"), and then
+`j==2` (or later) fails, gate-by-gate's *second* ceiling-retry check
+(`if ceiling_flag == 0`) is now also true and calls `ceiling(pre_state,
+...)` again -- on the same, already-once-mutated object, with the same
+`ceiling_track`/`node_type` (neither has changed, since `pre_state` is
+only reassigned on an overall success). Read `ceiling()`'s body fully to
+confirm the concrete damage: `ceiling_paths` gets appended to `embed_path`
+a second time (line ~129 in `ports.py`), and any `idle_h_track` entry
+already rewritten by the first call gets wrapped again by the second.
+
+**Fix**: added `_fresh_copy_for_ceiling()` (`driver.py`) -- a shallow copy
+of `EmbeddingState`'s mutable dict fields (`embed_node_pos`/`_ori`/`_type`,
+`t_track`, `idle_h_track`; confirmed by reading `ceiling()` that it only
+ever does top-level `dict[key] = value`/`del dict[key]` on these, never a
+nested in-place mutation, so shallow copy suffices) -- and pass
+`_fresh_copy_for_ceiling(pre_state)` instead of `pre_state` directly at
+all 5 call sites. `pre_state` itself is never touched again; each
+`ceiling()` call now independently starts from the true last-good values.
+Behavior-identical for the (common) single-call case -- the returned
+state's field *values* don't change, only whether the original object
+gets mutated as an unused side effect.
+
+**Verification**: fast subset (job 4534) PASSED at exact equality
+(486/891/243, unaffected as expected -- these don't stress the fallback
+ladder). Re-ran the 7-benchmark forced-failure batch from the P0 entry
+(`-b 2 -i 1 -t 0.5`, job 4535): all 7 still complete with exit code 0, and
+**every volume/z value is byte-identical to job 4527's pre-this-fix run**.
+Honest reading: this confirms the fix introduces no regression, but does
+*not* confirm the specific double-call scenario was actually exercised by
+this test config (identical output either means it wasn't triggered this
+time, or it was triggered and happened to produce the same numbers either
+way -- can't distinguish from these outputs alone). Logged as verified-safe,
+not verified-triggered, unlike the P0/P1 fixes which had a positive
+trigger confirmation.
+
+---
+
+## 2026-09-22 — Unified debugging pass, P1: A*'s missing stale-heap-entry guard
+
+Continuing the prioritized bug list from the P0 entry below. P1 was the
+`routing/astar.py` stale-heap-entry gap documented earlier this session
+(see that dated entry and `docs/ARCHITECTURE.md`'s bug list for the full
+derivation): lazy deletion in a binary-heap A* can leave multiple queue
+entries for the same node once a cheaper path is found, and without a
+guard, a stale (worse) pop can overwrite `back[node]` with a worse parent,
+producing a valid-but-non-shortest path.
+
+**Fix**: in all three A* variants (`shortest_path_with_zmax`,
+`shortest_path`'s unconstrained phase, `shortest_path_base`), added
+`if g > seen[p]: continue` immediately after `heapq.heappop`, before
+`back[p] = parent`. `seen[p]` always holds the best known g for `p` by
+construction (every push updates it first), and `p` is always in `seen`
+by the time it's popped (either pre-seeded as `src`, or set right before
+its own push) -- so this is a safe, unconditional lookup, not a
+`.get(...)`-with-fallback guess.
+
+**This is a real search-behavior change, unlike the P0 fixes** (which
+only affected previously-crashing edge cases) -- it can change actual
+routing outcomes for *any* call, so no exact-equality assumption going in.
+
+**Verification:**
+- `bv_16`/`dj_16`/`ghz_16` (job 4531, run directly via `prog.py`, not the
+  pytest exact-equality gate since a change was plausible): **all three
+  came back byte-identical to the pre-fix values** (486/891/243). Plausible
+  reading: these three are the "iters-bound, shallow, remarkably stable"
+  benchmarks already known not to stress A* very hard; the stale-duplicate
+  scenario this fix guards against apparently never occurs on a path that
+  ends up in their final chosen routes. No golden-value update needed.
+- `grover_6` production config (job 4532): **volume 22295, z=637**, down
+  from job 4516's 22995/z=657 (same code otherwise) -- a **-3.0% volume
+  drop**, larger than this benchmark's previously-documented run-to-run
+  jitter band (~1%, job 4438 vs 4446), and in the *predicted direction*
+  (smaller, since the fix only removes work that could never have
+  improved a result, so it should never make volume worse). Also
+  **-6.1% wall time** (738.31s -> 693.55s) -- removing the wasted
+  neighbor-relaxation passes on stale pops has a real speed effect too,
+  on top of the quality effect.
+
+**Cumulative effect on `grover_6` across every Phase 2 + P0/P1 fix this
+session**: job 4446 (2366.29s baseline) -> job 4532 (693.55s) = **-70.7%,
+~3.4x**, plus a genuine volume improvement (not just speed) from this fix
+specifically.
+
+**`ARCHITECTURE.md` updated**: struck through with a "Fixed 2026-09-22"
+note, cross-referencing this entry.
+
+---
+
 ## 2026-09-22 — Unified debugging pass begins: P0 fixes for two confirmed `UnboundLocalError`s in the fallback ladder
 
 User asked for the full bug list (from `docs/ARCHITECTURE.md`) prioritized,

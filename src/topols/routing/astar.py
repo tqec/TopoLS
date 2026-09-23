@@ -57,6 +57,16 @@ def shortest_path_with_zmax(
 
         # Expand node with lowest estimated total cost
         f, g, p, parent = heapq.heappop(open_q)
+
+        # P1 fix (unified debugging pass -- see docs/ARCHITECTURE.md's bug
+        # list and docs/REFACTOR_LOG.md's dated entry): lazy deletion means
+        # a node can have multiple stale queue entries once a cheaper path
+        # to it is found; `seen[p]` always holds the best known g for p
+        # (updated before any push), so a popped entry whose own g is worse
+        # is stale -- skip it instead of letting it overwrite `back[p]`
+        # with a worse parent or pay for a useless neighbor-relaxation pass.
+        if g > seen[p]:
+            continue
         back[p] = parent
 
         # Goal reached → reconstruct path
@@ -162,6 +172,11 @@ def shortest_path(
 
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
+
+        # P1 fix -- see the matching comment in shortest_path_with_zmax and
+        # docs/REFACTOR_LOG.md's dated entry.
+        if g > seen[p]:
+            continue
         back[p] = parent
 
         # Goal reached → reconstruct path
@@ -254,6 +269,11 @@ def shortest_path_base(
 
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
+
+        # P1 fix -- see the matching comment in shortest_path_with_zmax and
+        # docs/REFACTOR_LOG.md's dated entry.
+        if g > seen[p]:
+            continue
         back[p] = parent
 
         # Target reached → reconstruct path

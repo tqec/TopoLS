@@ -1,0 +1,24 @@
+=== bv_16 ===
+Executing bv_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 6
+Space-time volume: 486.0
+Time: 6
+Space: 81.0
+Compilation time: 13.810868978500366
+=== dj_16 ===
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 11
+Space-time volume: 891.0
+Time: 11
+Space: 81.0
+Compilation time: 24.375392198562622
+=== ghz_16 ===
+Executing ghz_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 3
+Space-time volume: 243.0
+Time: 3
+Space: 81.0
+Compilation time: 6.65455174446106

@@ -1,0 +1,7 @@
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 493
+Space-time volume: 39933.0
+Time: 493
+Space: 81.0
+Compilation time: 1229.0718722343445

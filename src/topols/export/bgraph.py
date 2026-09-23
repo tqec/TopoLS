@@ -1,5 +1,5 @@
 import pickle
-from collections import Counter
+from collections import Counter, defaultdict
 
 from topols.routing.color_algebra import ORI_MAP, _AXIS_MAP, edge_tracer
 
@@ -527,13 +527,12 @@ def find_duplicate_geometric_edges(edge_metadata):
             key   -> frozenset({p1, p2})
             value -> list of edge_metadata keys that map to this geometry
     """
-    # NOTE: `defaultdict` is used here but was never imported in the
-    # original file either -- this function has always raised NameError if
-    # called. Confirmed (by grepping the whole repo) that nothing calls
-    # find_duplicate_geometric_edges anywhere, so the bug is latent and
-    # harmless in practice. Preserved as-is per the "don't fix bugs during
-    # this refactor" rule -- see docs/ARCHITECTURE.md's bug list and
-    # docs/REFACTOR_LOG.md's "Phase 1a step 3" entry.
+    # P4 fix (unified debugging pass, 2026-09-22 -- see docs/ARCHITECTURE.md's
+    # bug list and docs/REFACTOR_LOG.md's dated entry): `defaultdict` used
+    # to be missing its import, so this function always raised `NameError`
+    # if called. Confirmed (repo-wide grep) that nothing calls it anywhere,
+    # so this was latent and harmless -- fixed the import anyway now that
+    # we're in the unified debugging pass.
     geom_map = defaultdict(list)
 
     for edge_key, (p1, p2) in edge_metadata.items():

@@ -1,0 +1,7 @@
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 63
+Space-time volume: 5103.0
+Time: 63
+Space: 81.0
+Compilation time: 406.59473037719727

@@ -104,8 +104,21 @@ def layer_labeling_block_vanilla(graph, block_range):
     # Get unique rows within block range and sort them
     block_rows = sorted(set(graph.row(v) for v in block_vertices))
 
-    # Create mapping from row to layer number (starting from 1)
-    row_to_layer = {row: idx + 1 for idx, row in enumerate(block_rows)}
+    # Create mapping from row to layer number, 0-indexed -- matching
+    # layer_labeling()'s convention (main pipeline: BFS starts at
+    # max_label=-1, so start_label=0, meaning boundary/input nodes get
+    # layer 0 and the first real gate layer is layer 1). This used to
+    # start at 1 (an off-by-one relative to that convention), which put
+    # the boundary nodes at layer 1 instead of layer 0 -- since layer_info()
+    # filters boundary nodes out (node_type_convert() == -1), layer 1
+    # would then have an empty node_output_connect, and driver.py's
+    # `for j in range(1, len(rows_)+1):` gate-by-gate loop would
+    # immediately hit the "no more output connections, finalize" branch on
+    # its very first iteration, silently truncating the entire rest of the
+    # block. Confirmed via direct diagnostic against qft_16's block
+    # [0, 7] -- see docs/ARCHITECTURE.md's bug list and
+    # docs/REFACTOR_LOG.md's dated entry.
+    row_to_layer = {row: idx for idx, row in enumerate(block_rows)}
 
     # Assign layer labels to vertices in block
     layer_labels = {}
