@@ -1,0 +1,22 @@
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 10
+Space-time volume: 270.0
+Time: 10
+Space: 27.0
+Compilation time: 31.431230068206787
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 6
+SAFETY CHECK FAILED (diff -1)
+
+=== trace tags ===
+  16016 step
+   1575 flip
+      8 declared_outer
+      8 declared_block0
+=== declared_outer never consumed ===
+declared_block0: declared=8 never_consumed=6 [['14_0', '3_0'], ['0_0', '9_0'], ['31_0', '37_0'], ['1_0', '8_0'], ['30_0', '39_0'], ['15_0', '2_0']]
+declared_outer: declared=8 never_consumed=3 [['24', '42'], ['30', '39'], ['27', '43']]

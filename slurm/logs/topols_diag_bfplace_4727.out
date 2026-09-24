@@ -1,0 +1,18 @@
+Space-time volume: 4698.0
+
+=== 各类事件计数 ===
+  52491 step
+  15671 flip
+    245 ceiling_keep
+     48 declared_block6
+     48 declared_block5
+     48 declared_block3
+     48 declared_block2
+     47 declared_outer
+     46 declared_block9
+      4 basic_embedding
+
+=== basic_embedding 放置的节点 ===
+entered
+place 235_9_old in=234_9 hflag=False
+place 237_9_old in=236_9 hflag=False

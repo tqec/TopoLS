@@ -1,3 +1,4 @@
+import os
 import random
 
 import numpy as np
@@ -42,14 +43,49 @@ from topols.embedding.ports import auto_ports
 # edge -- that edge is always a synthetic idle-insertion artifact and can
 # never itself be in `hadamard_edges`.
 
+# Set TOPOLS_H_DEBUG=<path> to have every *consumed* H flag appended there
+# (one line per hit, from whichever process hits it -- the MCTS seed workers
+# are separate processes, so an in-memory registry would not survive). Used
+# to find H edges that no code path ever looks at. Off (and free) otherwise.
+_H_DEBUG_PATH = os.environ.get("TOPOLS_H_DEBUG")
+
+
+def _h_debug(tag, node_a, node_b):
+    with open(_H_DEBUG_PATH, "a") as fh:
+        fh.write(f"{tag}\t{node_a}\t{node_b}\n")
+
+
+def _base_id(x):
+    """Strip the `_{block}` / `_old` decorations driver.py and ceiling() add,
+    leaving the underlying ZX vertex number (or None if there isn't one)."""
+    head = str(x).split("_")[0]
+    return int(head) if head.isdigit() else None
+
+
 def _hadamard_flip(hadamard_edges, curr_type, node_a, node_b):
     if frozenset((node_a, node_b)) in hadamard_edges:
+        if _H_DEBUG_PATH:
+            _h_debug("flip", node_a, node_b)
         return 1 - curr_type
+    if _H_DEBUG_PATH:
+        # Near-miss probe (diagnostic only, never changes behaviour): would
+        # this edge have matched if the `_{block}` / `_old` decorations were
+        # stripped off both ends? A hit here means a flip is being lost purely
+        # to id decoration, which is what to look at first when a collar is
+        # missing on a node whose id carries a suffix.
+        ba, bb = _base_id(node_a), _base_id(node_b)
+        if ba is not None and bb is not None and ba != bb:
+            for edge in hadamard_edges:
+                if {_base_id(x) for x in edge} == {ba, bb}:
+                    _h_debug("near_miss_suffix", node_a, node_b)
+                    break
     return curr_type
 
 
 def _hadamard_step(hadamard_edges, h_count, node_a, node_b):
     if frozenset((node_a, node_b)) in hadamard_edges:
+        if _H_DEBUG_PATH:
+            _h_debug("step", node_a, node_b)
         return h_count + 1
     return h_count
 
@@ -100,6 +136,8 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                 ori_flag = 1
             elif typ[input] in (2, 3):
                 start_node, path_to_input, h_count = track[input]
+                if _H_DEBUG_PATH:
+                    _h_debug("chain_close_set", f"{node}<-{input}", f"start={start_node} h_count={h_count}")
                 tol_path = path + list(path_to_input)[1:]
                 if typ[start_node] in (4, 5):
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], 0))
@@ -130,6 +168,8 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                 curr_type = _hadamard_flip(hadamard_edges, curr_type, node, input)
             elif typ[input] in (2, 3):
                 start_node, path_to_input, h_count = track[input]
+                if _H_DEBUG_PATH:
+                    _h_debug("chain_close_check", f"{node}<-{input}", f"start={start_node} h_count={h_count}")
                 tol_path = path + list(path_to_input)[1:]
                 if typ[start_node] in (4, 5):
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], 0))

@@ -1,0 +1,30 @@
+
+############ qft_16 ############
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 434
+Space-time volume: 35154.0
+Time: 434
+Space: 81.0
+Compilation time: 1020.3524453639984
+Interactive pipe diagram written to: result/visualization/qft_16_interactive.html
+QASM H-gate count: 392
+Structurally unrenderable (H on a wire into an output port): 0
+Expected collars (odd-length H runs, H*H=I cancelled): 328
+Rendered yellow-collar count: 322
+SAFETY CHECK FAILED (diff -6)
+
+############ qpe_16 ############
+Executing qpe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 477
+Space-time volume: 38637.0
+Time: 477
+Space: 81.0
+Compilation time: 1220.040503025055
+Interactive pipe diagram written to: result/visualization/qpe_16_interactive.html
+QASM H-gate count: 443
+Structurally unrenderable (H on a wire into an output port): 0
+Expected collars (odd-length H runs, H*H=I cancelled): 373
+Rendered yellow-collar count: 358
+SAFETY CHECK FAILED (diff -15)

@@ -8,6 +8,16 @@ from topols.embedding.state import _hadamard_step
 # ---------------------------------------------------------------------------
 
 # This function performs a deterministic "baseline" embedding procedure
+import os as _os
+
+
+def _bf_mark(msg):
+    _p = _os.environ.get("TOPOLS_H_DEBUG")
+    if _p:
+        with open(_p, "a") as _fh:
+            _fh.write(f"basic_embedding\t{msg}\t-\n")
+
+
 def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_h_track, idle_place, t_track, node_type, input_connect, inter_connect, output_connect, order, hadamard_edges):
 
     # ------------------------------------------------------------
@@ -130,6 +140,8 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                                 embed_node_pos[f"{node2}_old"] = tol_path[-1]
                                 embed_node_type[f"{node1}_old"] = node_type[node1]
                                 embed_node_type[f"{node2}_old"] = node_type[node2]
+                                _bf_mark(f"place {node1}_old in={input_connect[node1][0]} hflag={frozenset((node1, input_connect[node1][0])) in hadamard_edges}")
+                                _bf_mark(f"place {node2}_old in={input_connect[node2][0]} hflag={frozenset((node2, input_connect[node2][0])) in hadamard_edges}")
                                 if node_type[node1] == 1:
                                     embed_node_ori[f"{node1}_old"] = 'j' if ori_1_blue == 'i' else 'i'
                                 else:
@@ -178,6 +190,7 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                     if ((target[0], target[1], z_search) not in occupied) and ((target[0], target[1], z_search+1) not in occupied):
                         embed_node_pos[f"{node}_old"] = (pos[0], pos[1], z_search)
                         embed_node_type[f"{node}_old"] = node_type[node]
+                        _bf_mark(f"place {node}_old in={input_connect[node][0]} hflag={frozenset((node, input_connect[node][0])) in hadamard_edges}")
                         embed_node_ori[f"{node}_old"] = ori_blue
                         path = [(pos[0], pos[1], z_search), (target[0], target[1], z_search), (target[0], target[1], z_search+1)]
                         path_v = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_search))
@@ -230,6 +243,7 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                         path_v = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_search))
                         embed_node_pos[f"{node}_old"] = tol_path[0]
                         embed_node_type[f"{node}_old"] = node_type[node]
+                        _bf_mark(f"place {node}_old in={input_connect[node][0]} hflag={frozenset((node, input_connect[node][0])) in hadamard_edges}")
                         embed_node_ori[f"{node}_old"] = ori_blue
                         embed_path.append(tuple(tol_path)); embed_path.append(tuple(path_v))
                         t_track[f"{node}_old"] = [out_target, tol_path, 0]
@@ -241,6 +255,8 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                         break
                 if not found:
                     z_search += 1
+
+    _bf_mark("entered")
 
     z_ceil = max(value[2] for value in embed_node_pos.values())+2
 

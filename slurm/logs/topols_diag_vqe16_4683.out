@@ -1,0 +1,12 @@
+Executing vqe_16 benchmark.
+Embedding progress:
+[TIER] gate-by-gate fallback entered: layer=17 block=2
+x_length: 9.0 y_length: 9.0 z_length: 45
+Space-time volume: 3645.0
+Time: 45
+Space: 81.0
+Compilation time: 157.7768783569336
+Interactive pipe diagram written to: result/visualization/vqe_16_interactive.html
+QASM H-gate count: 84
+Rendered yellow-collar count: 81
+SAFETY CHECK FAILED

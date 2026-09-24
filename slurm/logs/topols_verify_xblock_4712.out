@@ -1,0 +1,60 @@
+
+############ qaoa_16 ############
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 58
+Space-time volume: 4698.0
+Time: 58
+Space: 81.0
+Compilation time: 228.2675974369049
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html
+QASM H-gate count: 48
+H-boxes kept as cubes (on an output-port wire): 16
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 44
+SAFETY CHECK FAILED (diff -4)
+
+############ bv_16 ############
+Executing bv_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 9
+Space-time volume: 729.0
+Time: 9
+Space: 81.0
+Compilation time: 39.77984690666199
+Interactive pipe diagram written to: result/visualization/bv_16_interactive.html
+QASM H-gate count: 21
+H-boxes kept as cubes (on an output-port wire): 10
+Expected collars (odd-length H runs, H*H=I cancelled): 21
+Rendered yellow-collar count: 21
+SAFETY CHECK PASSED
+
+############ dj_16 ############
+Executing dj_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 10
+Space-time volume: 810.0
+Time: 10
+Space: 81.0
+Compilation time: 18.74469017982483
+Interactive pipe diagram written to: result/visualization/dj_16_interactive.html
+QASM H-gate count: 31
+H-boxes kept as cubes (on an output-port wire): 14
+Expected collars (odd-length H runs, H*H=I cancelled): 31
+Rendered yellow-collar count: 31
+SAFETY CHECK PASSED
+
+############ grover_6 ############
+Executing grover_6 benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 7.0 z_length: 652
+Space-time volume: 22820.0
+Time: 652
+Space: 35.0
+Compilation time: 561.0842649936676
+Interactive pipe diagram written to: result/visualization/grover_6_interactive.html
+QASM H-gate count: 104
+H-boxes kept as cubes (on an output-port wire): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 100
+Rendered yellow-collar count: 99
+SAFETY CHECK FAILED (diff -1)

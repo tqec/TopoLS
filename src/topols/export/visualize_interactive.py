@@ -248,9 +248,18 @@ def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness
     rotatable/zoomable HTML file (Plotly, no server needed -- open directly
     in a browser). Returns the output path."""
     node_acc = _MeshAccumulator()
-    for node in nodes.values():
+    label_xs, label_ys, label_zs, label_text = [], [], [], []
+    for node_id, node in nodes.items():
         face_colors = get_node_face_colors(node)
         _add_node(node_acc, node["position"], cube_size, face_colors)
+        # Node IDs, offset above each cube so the text does not sink into the
+        # coloured mesh. Synthetic `path_*` stubs are skipped -- they are not
+        # real embedded nodes and labelling them makes the view unreadable.
+        if isinstance(node_id, str) and node_id.startswith("path_"):
+            continue
+        x, y, z = node["position"]
+        label_xs.append(x); label_ys.append(y); label_zs.append(z + cube_size * 1.5)
+        label_text.append(f"{node_id}")
 
     edge_acc = _MeshAccumulator()
     for (n1, n2) in edges:
@@ -269,6 +278,16 @@ def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness
     edge_wire = edge_acc.to_wireframe("pipe edges")
     if edge_wire is not None:
         traces.append(edge_wire)
+
+    traces.append(go.Scatter3d(
+        x=label_xs, y=label_ys, z=label_zs,
+        mode="text",
+        text=label_text,
+        textfont=dict(size=11, color="black"),
+        textposition="top center",
+        hoverinfo="text",
+        name="node labels",
+    ))
 
     fig = go.Figure(data=traces)
     fig.update_layout(

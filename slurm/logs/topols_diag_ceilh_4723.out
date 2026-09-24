@@ -1,0 +1,28 @@
+Space-time volume: 4698.0
+Rendered yellow-collar count: 44
+SAFETY CHECK FAILED (diff -4)
+
+=== ceiling 分支统计 ===
+    245 ceiling_keep
+=== 被归零 h_count 的节点(去重,前40) ===
+=== 保留了非零 h_count 的节点 ===
+258 h_count=1
+259_9 h_count=1
+261 h_count=1
+262_3 h_count=1
+264_2 h_count=1
+264_6 h_count=1
+264_9 h_count=1
+264 h_count=1
+265_5 h_count=1
+267 h_count=1
+268_3 h_count=1
+269_9 h_count=1
+270 h_count=1
+272_6 h_count=1
+272 h_count=1
+274_2 h_count=1
+274_3 h_count=1
+274_9 h_count=1
+276 h_count=1
+279_9 h_count=1

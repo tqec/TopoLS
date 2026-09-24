@@ -11,6 +11,468 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-23 — H-gate embedding optimization (dissolve H-boxes) + 4 bugs found by a new "one collar per H" safety check
+
+User's design premise: an H gate never needs its own physical embedding
+cube. At render time `export/bgraph.py`'s `merge_idle_paths` discards an
+H-node's own position entirely -- only the *color transition* between its
+two real neighbors survives. So instead of embedding H as a node, dissolve
+it at the ZX level and compensate in the color algebra.
+
+### The optimization itself
+
+- `zx_transform/simplify.py`: new `dissolve_hadamard_boxes(graph)` --
+  removes every `H_BOX` vertex, reconnects its two neighbors directly, and
+  returns `hadamard_edges` (a set of `frozenset((u, v))`). Runs after
+  `hadamard_box` *and* after `zx_optimization`, before `layer_labeling`.
+- `zx_transform/layering.py`: new `_move_hadamard_flag()`; idle-insertion
+  splits an edge into a chain, so a flagged edge's flag moves onto the
+  *first* new edge of the split (never both ends -- one flip anywhere on
+  the chain reproduces the same net effect). Threaded through
+  `idling_nodes_insertion` and `idling_nodes_insertion_block_vanilla`.
+- `embedding/state.py`: new `_hadamard_flip()` (flip `curr_type` right
+  before an `ORI_MAP` lookup, for edges between two already-real nodes) and
+  `_hadamard_step()` (bump `h_count` by 1, for idle/H chains -- reuses the
+  pre-existing `h_count % 2` mechanism). Applied in `_route_input_ports`'s
+  two *direct* sub-cases (`typ[input] in (0,1)` and `(4,5)`, in both the
+  `ori_flag==0` direct-set and the `else` check/`color_switch` branches)
+  and in all 4 intra-layer helpers. Deliberately *not* applied in
+  `_route_input_ports`'s `(2,3)` chain sub-case: by `_move_hadamard_flag`'s
+  construction the flag can only ever sit on the edge nearest a chain's
+  `start_node`, never on the closing edge, so `h_count` already carries it
+  there. `hadamard_edges` added to `EmbeddingState.__slots__`/`__init__`
+  and threaded through all 15 internal call sites.
+- `embedding/fallback.py`, `driver.py`, `docs/prog.py`: plumbing.
+
+### New safety check
+
+`docs/check_hadamard_safety.py` (user-requested): counts `h` gates in the
+QASM and counts edges that would render a yellow "color transition" collar
+(reusing `visualize.py`'s own `needs_color_transition`/`edge_axis` on the
+same `bgraph_metadata`/`edge_metadata` 2tqec.py builds). These should
+match. This check is what found every bug below -- none of them were
+visible from volume/extent numbers alone.
+
+### Bug 1 (mine) -- `hadamard_edges_` not renamed with the `_{block}` suffix
+
+The gate-by-gate fallback renames every node id from its fresh `graph_`
+reparse by appending `f"_{block}"` before constructing any
+`EmbeddingState`, but `hadamard_edges_` stayed keyed on the pre-rename
+ids, so every `_hadamard_flip`/`_hadamard_step` membership check silently
+never matched. Confirmed on `cnot_h_cnot_s_cnot_h_cnot`: nodes `2_0`/`5_0`
+(directly connected by a dissolved-H edge, same type) both had `ori=j`,
+which is impossible if the flip applied -- for fixed `(last_dir,
+target_type)`, flipping `curr_type` *always* changes the `ORI_MAP` result.
+Fixed by renaming the set the same way; after the fix `2_0`=`j`,
+`5_0`=`i`.
+
+### Bug 2 (mine) -- `io_info` had the same id-namespace problem
+
+`io_info` is built once up front from the *outer* pre-fallback graph
+(`docs/prog.py`), so for any qubit whose final node came out of the
+fallback with a `_{block}` suffix, `combine_metadata`'s
+`io_info.get(node, None)` silently returned `None` -- the output ports
+lost their `{"type": "output"}` tag and rendered red/blue instead of gray.
+User noticed this visually ("我的 output 应该上面都是灰色的"). Fixed by
+recomputing `extract_io_nodes(graph_)` inside the fallback, suffixing it
+the same way, and merging it into the caller's `io_info` dict (now passed
+into `operation()`) filtered by membership in the block's own embedded
+nodes -- so an entry only lands if that block really did reach the qubit's
+final layer. Verified: `io_info` now carries `'12_0'`/`'11_0'` as outputs
+and all four gray boundary cubes render.
+
+### Bug 3 (mine) -- cross-block H flag lost at the qubit hand-off
+
+Both qubit hand-off substitution sites (`driver.py`'s main-loop
+`input_mapping_flag == 1` branch and the fallback's own `j == 1` branch)
+throw away a node's natural predecessor in favor of
+`qubit_output_map`/`qubit_map_pre_layer`, which loses the H flag on that
+edge. Fixed by checking the natural edge against the relevant reference set
+before substituting and, on a hit, adding the substituted pair.
+
+### Bug 4 (PRE-EXISTING, and the big one) -- a block's first row was silently never embedded
+
+`layer_labeling_block_vanilla` numbers layers by sorted row index *within
+`block_range`*, so layer 0 = the block's own first row. But the fallback
+loop is `for j in range(1, len(rows_))` -- it deliberately skips layer 0,
+because the design assumes layer 0 is the *already-embedded* frontier
+handed over from the previous block (which is exactly why `j == 1`'s input
+substitution may replace it wholesale). That assumption was false:
+`block_info[block][0]` is this block's own first row, which the previous
+block never embedded. Result: real nodes sitting on a block's first row
+were dropped entirely, with no error -- nothing validates that layer-0
+nodes were ever embedded.
+
+**Empirically confirmed against the pre-H-optimization pipeline** (commit
+`0ad0e7a`, in the `/tmp/topols_old_compare` worktree), `cnot_s_cnot_h_2`
+at `-b 10`: the original code's own result is missing H_BOX vertices
+**128 / 133 / 138** from `pos_hist` entirely -- three whole H gates gone,
+each sitting exactly on the first row of blocks 2 / 4 / 6. Its collar count
+is 17/20, missing exactly the 3 cross-block H edges `{32,29}`, `{59,62}`,
+`{89,92}`. So this is a genuine pre-existing bug, not a regression from the
+dissolve work; the dissolve work merely made it *visible* (and shifted
+which node gets eaten, since removing the H_BOX empties its row).
+
+Fix (`driver.py`): start `block_range` one row earlier for any block after
+the first, so layer 0 genuinely *is* the previous block's last row:
+```python
+block_row_start = block_info[block][0]
+if block_row_start > 0:
+    block_row_start -= 1
+block_range = [idx_to_row[block_row_start], idx_to_row[block_info[block][1]]]
+```
+Verified at the layer level before running anything: with `[20,29]`,
+layer 0 = `[32,33]` (real gates) and layer 1's input edges contain no
+H-flagged edge; with `[19,29]`, layer 0 = `[29,30]` (previous block's last
+row) and layer 1's input edges contain `(32,29)` -- the H edge, now
+visible to `_hadamard_flip`.
+
+Note this bug is *not* H-specific: any real node landing on a block's
+first row was eaten the same way. Only H's disappearance happened to be
+detectable, via the new collar check.
+
+### Bug 5 (mine) -- H*H = I not honoured: adjacent H-boxes
+
+User's hunch, asked for unprompted: "查查有没有两个 HGate 连在了一起...
+两个 H gate 它相乘会变成 identity... 所以 pipe diagram 里面是没有这个
+color 的变换的". Correct, and present in the stock benchmarks: `qft_16`
+has 32 runs of two adjacent H-boxes, `qpe_16` 34 of length 2 plus one of
+length 3, `grover_6` 2, `vqe_16` 1. `hadamard_box` never creates them
+(it only ever puts an H_BOX between two real vertices) -- they appear
+when `delete_singular_nodes` removes the degree-2 spider between two of
+them.
+
+`dissolve_hadamard_boxes` dissolved one box at a time, which on a run
+A--H1--H2--B gives: dissolve H1 -> edge (A,H2) flagged; dissolve H2 ->
+edge (A,B) flagged. So the run left a **dangling flag** on (A,H2) (an
+edge whose far endpoint no longer exists, so nothing can ever match it)
+*and* gave the surviving edge (A,B) one flip -- when H*H = I means it
+must get **zero**. A spurious colour change, i.e. the compiler silently
+inserted an H that the circuit does not contain.
+
+Fixed by collapsing each maximal run at once: gather the connected run of
+H-boxes (every H_BOX has degree 2, so a run is a simple path), take its
+two real endpoints, remove the whole run, add the single edge, and flag
+it only when the run length is odd. Flag counts now equal the odd-run
+count exactly with zero dangling flags: `vqe_16` 84 -> 82, `grover_6`
+104 -> 100, `qft_16` 392 -> 328, `qpe_16` 443 -> 373, the five
+chain-free benchmarks unchanged.
+
+### Not a bug: an H on the wire into an *output* port
+
+`check_hadamard_safety.py`'s original "one collar per QASM `h`" premise
+was wrong twice over. Beyond H*H = I above, user pointed out the second
+case: "如果你放到最末尾,它确实画不出来啊。因为...你得比较这条链两端的
+这个颜色" -- a collar marks a colour change *between two coloured cubes*,
+and an output port is an open boundary with no colour to compare against.
+
+Confirmed exactly, and the input/output asymmetry is the key detail: a
+qubit's *input* port is a real embedded cube (`auto_ports` places it, it
+carries an orientation and colour), so an H there renders normally --
+`bv_16` has 11 such edges, `dj_16` 14, `qaoa_16` 16, and every one of
+them renders. Only an H left sitting on the *output* wire is
+unrenderable, and only `grover_6` and `qaoa_16` own one (one each).
+`idling_nodes_insertion` rescues most near-boundary H gates by splitting
+the long edge and moving the flag onto the first new segment, which is
+why this is rare.
+
+The checker now replays prog.py's whole graph pipeline (so it sees the
+post-dissolve, post-idling graph, where both effects have settled) and
+subtracts these, reporting them separately as "structurally
+unrenderable". With that, PASS/FAIL means "is there a bug", and
+`bv_16`/`dj_16`/`ghz_16`/`wstate_16`/`vqe_16` all report PASSED.
+
+### Results
+
+`cnot_s_cnot_h_2` at `-b 10`: 16/20 collars → **19/20**; volume 870 →
+**975**. The volume *increase* is the correct direction: the old 870 was
+obtained by silently dropping 3 real gates.
+
+Fast regression (job 4680): `bv_16` **passes** (486, exact golden).
+`dj_16` = 648, bit-identical before and after the block_range fix, and
+below its 891 golden as expected from dissolving its 31 H gates.
+`ghz_16` = 972 at `-s 2 -t 2` (up one z step from 891 pre-fix -- same
+"previously-dropped nodes now embedded" signature), and **243 = its exact
+golden** on both runs of the larger `-s 5 -t 100` budget (job 4681),
+confirming the fix did not damage it. `GOLDENS` deliberately not touched
+yet -- the full 9-benchmark Full-Opt run (job 4682) is what should inform
+that update.
+
+Full 9-benchmark Full-Opt run (job 4682, 1h04m): volume down on 8 of 9
+against `GOLDENS` (`dj_16` -27.3%, `vqe_16` -9.6%, `qpe_16` -7.8%,
+`grover_6` -5.4%, `qft_16` -5.0%, `wstate_16` -2.9%, `qaoa_16` -1.7%,
+`bv_16` exactly its golden), `ghz_16` being the known RNG-sensitive one at
+`-s 2 -t 2`.
+
+### Status after Bug 5 + the corrected checker
+
+| benchmark | expected | rendered | verdict |
+|---|---|---|---|
+| bv_16 | 21 | 21 | PASS |
+| dj_16 | 31 | 31 | PASS |
+| ghz_16 | 1 | 1 | PASS |
+| wstate_16 | 74 | 74 | PASS |
+| vqe_16 | 82 | 82 | PASS (was -1 before Bug 5) |
+| grover_6 | 99 (+1 unrenderable) | 98 | **-1** |
+| qaoa_16 | 47 (+1 unrenderable) | 44 | **-3** |
+| qft_16 / qpe_16 | -- | -- | re-run pending (were +18 / +25 before Bug 5) |
+
+Runtime tracing (`TOPOLS_H_DEBUG=<path>`, which appends every consumed
+flag from every process -- the MCTS seed workers are separate processes,
+so an in-memory registry would not survive) showed the surviving losses
+all sat in blocks that went through the gate-by-gate fallback. Minimal
+isolates ruled out the obvious suspects: a T gate's outgoing H
+(`t_then_h`) and incoming H (`h_then_t`) both render correctly on their
+own, T-adjacency in general is fine (`wstate_16` has 73 T-adjacent H
+edges, all rendered), and `basic_embedding` is never even reached
+(instrumented: 0 calls on qaoa_16).
+
+### Bug 6 (mine) -- a flag stranded on the wire into an output port
+
+Found via a 4-qubit `qaoa_4` repro built for this (same gate pattern as
+qaoa_16, runs in seconds; `-b 20` loses one collar). Comparing collar
+*positions* against the pre-optimization pipeline pinned it exactly: both
+missing collars belonged to H edges whose far end was an output boundary.
+
+A dissolved H only works if something routes the edge it left its flag
+on. An edge into an output port is never routed (the boundary has
+`node_type_convert() == -1`, so `layer_info` drops it). Most such flags
+escape anyway because idling insertion splits the long run to the port
+and moves the flag onto the first routable segment -- but when the gap is
+already one layer there is no split, and the flag dies there.
+
+Fix: `zx_transform/layering.rematerialize_stranded_hadamards()`, run
+*after* idling insertion (so the rescues have already happened) in both
+`docs/prog.py` and the fallback, giving a cube back to whatever is still
+stranded.
+
+**Two wrong versions were tried first, both caught by measurement:**
+
+1. *Refusing to dissolve any output-side H-box* (decided at dissolve time,
+   before layering). Too blunt: it keeps cubes where the rescue would have
+   worked, costing `bv_16` 486 -> 729 (confirmed real over repeats, never
+   returning to 486) and `dj_16` 648 -> 810, and it even broke a case that
+   was already correct (`vqe_16` 82/82 -> 80/82).
+2. *Recovering a fallback block's "invisible" predecessor from `graph_`*
+   when `layer_info` reports an empty input list. Wrong because such a
+   neighbour need not be the hand-off edge's far end -- there can be nodes
+   in between that the previous block already handled -- so it
+   double-applies the flip: `qaoa_16` -3 -> -10, `grover_6` -1 -> -3.
+
+Both reverted. With the narrow version, `qaoa_16` renders 47/48 and
+`bv_16`/`dj_16` are back at their golden volumes.
+
+### Measurement lesson (cost several wrong turns)
+
+Two separate wrong conclusions this session came from unsound comparisons:
+
+* **Comparing against a moving expectation.** "qaoa_16's 3 misses are my
+  regression" was derived while the checker's expected-collar formula was
+  still wrong. Re-measured with one consistent checker, the
+  pre-optimization pipeline scores *the same* 47/48 on qaoa_16 and the
+  same 99/100 on grover_6 -- neither is a regression.
+* **Using a non-deterministic benchmark as causal evidence.** The fallback
+  copy of the fix was removed because `vqe_16` dropped to 80/82 -- but
+  `vqe_16` scores 80/82 with *and* without it (its volume wanders
+  3807/3645/3483 run to run under the `-t 2` wall-clock bound). The
+  removal cost `qaoa_16` 47/48 -> 44/48 and was restored.
+
+Only two things are sound evidence here: an equal-footing comparison
+against the 0ad0e7a worktree, and the benchmarks confirmed deterministic
+(`bv_16`, `dj_16`), which is what they are used for above.
+
+### Final state (job 4718, plus 0ad0e7a baselines measured with the same checker)
+
+| benchmark | this pipeline | 0ad0e7a | note |
+|---|---|---|---|
+| bv_16 | 21/21, vol 486 (= golden) | -- | PASS |
+| dj_16 | 31/31, vol 648 | -- | PASS |
+| ghz_16 | 1/1 | -- | PASS |
+| wstate_16 | 74/74 | -- | PASS |
+| vqe_16 | 82/82 | -- | PASS (fluctuates 80-82) |
+| grover_6 | 99/100 | **99/100** | identical |
+| qft_16 | 322/328 | **322/328** | identical |
+| qaoa_16 | 44-47/48 | 47/48 | overlapping once its jitter is accounted for |
+| qpe_16 | 358/373 | **365/373** | **-7, the one clear remaining gap** |
+
+So the collar losses that looked alarming (`qpe_16` -15, `qft_16` -6) are
+overwhelmingly pre-existing: the original H-as-a-cube pipeline loses the
+same 6 on qft_16 and the same 1 on grover_6, and 8 of qpe_16's 15. Five
+benchmarks are exactly right. The H optimization meanwhile takes volume
+down across the board versus `GOLDENS` (dj_16 -27%, vqe_16 -10%, qpe_16
+-8%, grover_6 -5%, qft_16 -5%, wstate_16 -3%, qaoa_16 -2%, bv_16 equal).
+
+Still open: `qaoa_16` -4 and `qpe_16` -7 against the original pipeline.
+`GOLDENS` is deliberately still untouched.
+
+### Bug 7 -- a restored H-box shared the output port's layer
+
+`rematerialize_stranded_hadamards` gave the box `other_layer + 1`, which is
+exactly the port's own layer. With no next-layer neighbour `layer_info`
+reports `output_count == 0` for it, driver.py's "no more output
+connections" branch fires and returns, and the box is never embedded at
+all -- qaoa_16's restored box 644 was absent from `pos_hist` entirely.
+Fixed by pushing the port one layer further, reproducing the shape
+`hadamard_box` produces when it runs before layering. The box is embedded
+now; it did not change the collar count, because a type-3 node carries its
+H as `h_count` on the idle chain rather than as its own colour.
+
+### Where the last few losses are *not*
+
+Two hypotheses were tested and killed by measurement before any code
+changed -- worth recording so they are not re-tried:
+
+* **`basic_embedding` dropping flips.** Its orientation assignment does
+  inherit `qubit_ori` without consulting `hadamard_edges`, so it looked
+  like a real gap. Instrumented: qaoa_16 reaches `basic_embedding`
+  **0 times**. Not the cause (the latent gap is still there, unexercised).
+* **`ceiling()` zeroing an idle chain's `h_count`.** `ports.py` starts a
+  *fresh* `idle_h_track` entry with `h_count = 0` when the node it caps is
+  not already tracked, which would erase any accumulated H. Instrumented
+  over a whole qaoa_16 compile: that branch fires **0 times**, while the
+  preserving branch fires 245 times and carries `h_count=1` through
+  correctly. Not the cause.
+
+### qaoa_16's four missing collars, fully attributed
+
+`qaoa_16` turns out to be **deterministic** at its stock config -- six
+consecutive samples all gave 44/48 at volume 4698. (The 47/48 seen once
+earlier came from a run started while these files were mid-edit, not from
+jitter; treating it as jitter caused one of the wrong turns above.) That
+makes it a reliable subject, and following every H to the real nodes its
+idle chain closes on pins all four:
+
+| H | real endpoints | root cause |
+|---|---|---|
+| qubit 6, 2nd | 106 (main) / 132_5 (block 5) | chain closes across the main/fallback seam |
+| qubit 14, 2nd | 172_6 (block 6) / 190 (main) | same seam, other direction |
+| qubit 11, 3rd | 235 / 251 | **block 9 never embedded at all** |
+| qubit 15, 3rd | 237 / 255 | **block 9 never embedded at all** |
+
+The first two are one problem: the flagged edge has one end embedded by the
+gate-by-gate fallback (id `X_{block}`) and the other by the main pipeline
+(plain id), so the pair routing actually sees is mixed -- `('190',
+'172_6')` -- and matches neither flag set (the fallback's is keyed
+`'172_6'/'190_6'`, the outer's `172/589`). Worse, that step takes
+`_route_input_ports`' `typ[input] in (2,3)` branch, which by design does
+not call `_hadamard_flip` at all and relies on `h_count`; the chain's
+`h_count` was accumulated in the other id space, so both mechanisms miss.
+A "suffix near-miss" probe (log every edge that fails to match but *would*
+match with `_{block}`/`_old` stripped) fires **0 times**, precisely because
+that branch never consults the flag set.
+
+The last two are not an H problem at all: nodes 235/237/251/255 and the two
+H-boxes `rematerialize_stranded_hadamards` correctly restored for them
+(327, 328) are **all absent from `pos_hist`**. Block 9 is the circuit's
+last block; the compile takes the "no more output connections" early return
+and caps the remaining wires at the ceiling, so that block's real gates --
+two H gates among them -- are never embedded. Worth noting on its own
+terms: it means qaoa_16's tail is not being compiled, quite apart from
+Hadamards.
+
+Two candidate fixes were tried and are neutral (guards `bv_16` 486 and
+`dj_16` 648 unaffected, qaoa_16 stays 44):
+
+* Restoring a stranded H-box's own layer instead of sharing the port's
+  (Bug 7 above) -- correct in itself, the box is embedded now, but a type-3
+  node expresses its H through the chain's `h_count`, not its own colour.
+* Suffixing only the nodes a fallback block actually embeds, so an H edge
+  leaving the block keeps its far end under the id the main pipeline uses.
+  Also correct in itself (it stops inventing ids that never exist), but the
+  edge in question is never routed *by the fallback* -- node 190 carries no
+  layer there, so `layer_info` never reports it as 172's output.
+
+Both kept: they remove real inconsistencies and cost nothing measurable.
+
+`basic_embedding` was briefly suspected here too (it does inherit
+`qubit_ori` without consulting `hadamard_edges`) and it *is* reached in
+this configuration -- instrumentation caught it placing `235_9_old` and
+`237_9_old`. But the H gates on those nodes sit on their *outgoing* edges,
+which it never looks at, and its whole attempt is discarded anyway since
+block 9's embedding is thrown away. Fixing its incoming-edge check would
+have changed nothing -- checked before writing any code.
+
+### Bug 8 (found, root-caused, NOT yet fixed) -- a doubly-counted H cancels itself
+
+User pushed back on stopping and pointed straight at it: "这条 path 该变色
+却没变... 你本该把它的这个 path 给它做一个 curve type 的变化,你没有做".
+Exactly right, and the reason is the opposite of what every earlier
+hypothesis assumed -- the H is not *lost*, it is counted **twice**.
+
+Logging `h_count` at every chain close on qaoa_16:
+
+```
+chain_close_set  132<-487      start=106  h_count=1   <- main pipeline: correct
+chain_close_set  132_5<-328_5  start=106  h_count=2   <- fallback: one too many
+```
+
+The fallback's attempt is the one that survives, and `h_count = 2` is even,
+so `if h_count % 2 == 1` is False and the flip is **deliberately skipped** --
+the code reads it as H*H = I. That is why 106 and 132_5 both come out
+`XZX` and the pipe between them never changes colour. 4718 chain closes
+across that one compile read `h_count=2`.
+
+The second count comes from the `j == 1` hand-off flag transfer (Bug 3
+above). The main pipeline walks the wire and folds the H into the chain's
+`h_count`; the fallback then sees the same physical H as an edge entering
+its block and counts it again. The two views disagree about *where* the H
+sits: in the outer (zx-optimized) graph it is edge (106, 486), in the
+fallback's own reparse it is (121, 132) -- opposite sides of the block
+boundary.
+
+Suppressing the transfer when the hand-off node is already an idle chain
+(`substitute not in idle_h_track`) fixes the chain in question and takes
+`cnot_s_cnot_h_2` to a clean **20/20**, but it is far too blunt: it also
+suppresses transfers that are genuinely needed, and `qaoa_16` drops from
+44/48 to **31/48**. Reverted.
+
+**The proper fix is to stop representing this as a count.** A count cannot
+distinguish "the same H counted twice" from "two real H gates", yet those
+must behave oppositely. Carrying a *set of H identities* instead -- each
+physical H keyed by `(qubit, index of this H along that qubit)`, with the
+flip decided by the parity of the set's size -- makes double counting
+impossible by construction, since a union is idempotent. That means
+replacing `h_count` in `idle_h_track` wherever it is threaded
+(`embedding/state.py`, `embedding/ports.py`, `embedding/fallback.py`), so
+it is worth its own session with the verification set now available:
+`qaoa_16` is deterministic at 44/48, `cnot_s_cnot_h_2` at 20/20, and
+`bv_16`/`dj_16` are exact-equality guards.
+
+### Bug 9 (fixed) -- the brute-force safety net could be bypassed entirely
+
+Also user-flagged, and correctly: "我的 compiler 即使找不到 ... 仍然能编译
+出来,因为我有个 basic 这个 fallback。你这个编译失败不是一个正常的事情."
+Right -- `operation()` returning `None` should be unreachable. It was:
+
+```
+[NONE-DIAG] fallback j-loop empty: block=10 layer=32 rows_=[0]
+[NONE-DIAG] operation() returning None: last i=32 block=10 backup_flag=1 len(rows)=33
+```
+
+The gate-by-gate loop is `for j in range(1, len(rows_))`. qaoa_16's block 10
+covers only the output-boundary row, so its own layering yields a single
+layer, `range(1, 1)` is empty, and the loop body never runs. `best_state`
+stays `None` from the top of the outer iteration, the ceiling-retry and
+`basic_embedding` tiers are never reached, and the function returns `None`
+-- surfacing in the caller as `AttributeError: 'NoneType' object has no
+attribute 'x_min_floor'`. Such a block has no real node to embed anyway
+(boundaries never are), so the fix carries the last good state forward.
+Unrelated to Hadamards; a genuine robustness hole in the fallback ladder.
+
+### Caveat on the "which four H gates" attribution
+
+The four were identified by asking which H edges have no rendered collar
+touching either endpoint. That test is too strict for an H whose flag sits
+on an edge into an *idle chain*: an idle node carries no colour of its own
+(`ori`/`tqec` are `None` -- confirmed on qaoa_16's node 486), so the
+transition only materialises where the chain finally closes on a real
+node, which can be several layers away and is not one of the flagged
+edge's endpoints. The *count* (48 expected, 44 rendered) is solid; the
+per-gate attribution needs to follow chains to their closing node before
+it can be trusted, and no fix should be attempted off the current list.
+
+---
+
 ## 2026-09-22 — Critical parallelization bug found and fixed: `node_input_connect` wasn't snapshotted per seed, only the RNG state was
 
 User asked to raise `seed_step` from 2 to 5 (with `--cpus-per-task` raised

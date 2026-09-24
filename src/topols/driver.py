@@ -14,6 +14,7 @@ from topols.zx_transform.layering import (
     idling_nodes_insertion_block_vanilla,
     layer_info,
     extract_io_nodes,
+    rematerialize_stranded_hadamards,
 )
 
 # Phase 2 parallelization (see docs/REFACTOR_LOG.md's dated entry): the two
@@ -213,6 +214,13 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     if hadamard_edges is None:
         hadamard_edges = set()
 
+    _h_dbg = os.environ.get("TOPOLS_H_DEBUG")
+    if _h_dbg:
+        with open(_h_dbg, "a") as _fh:
+            for _e in hadamard_edges:
+                _a, _b = tuple(_e)
+                _fh.write(f"declared_outer\t{_a}\t{_b}\n")
+
     # Gate-by-gate fallback id-namespace fix (see docs/REFACTOR_LOG.md's
     # dated entry): the caller's `io_info` (built once, up front, from the
     # *outer* pre-fallback graph -- see docs/prog.py) goes stale for any
@@ -341,7 +349,6 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
         node_input_connect, node_inter_connect, node_output_connect, node_type = layer_info(graph, layer_labels, i)
         if input_mapping_flag == 1:
-            print(f"[DIAG] site A firing at layer {i}, block {block}, node_input_connect={node_input_connect}, qubit_output_map={qubit_output_map}")
             node_input_connect_new = {}
             for key in node_input_connect:
                 substitute = qubit_output_map[graph.qubit(key)]
@@ -353,9 +360,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 # processed block's hand-off id), so any H flag on that
                 # natural edge has to move onto the substituted pair.
                 for natural_input in node_input_connect[key]:
-                    matched = frozenset((key, natural_input)) in hadamard_edges
-                    print(f"[DIAG] siteA check key={key} natural_input={natural_input} matched={matched}")
-                    if matched:
+                    if frozenset((key, natural_input)) in hadamard_edges:
                         hadamard_edges.add(frozenset((key, substitute)))
                 node_input_connect_new[key] = [substitute]
             node_input_connect = node_input_connect_new
@@ -633,7 +638,30 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     # Now we are going to start from the begining of the block and use gate by gate embedding.
                     backup_flag = 1
                     # First redoing the block optimization
-                    block_range = [idx_to_row[block_info[block][0]], idx_to_row[block_info[block][1]]]
+                    # The gate-by-gate fallback's own layer numbering
+                    # (layer_labeling_block_vanilla) is row-index based and
+                    # resets to 0 per block, and the `for j in range(1,
+                    # len(rows_))` loop below deliberately skips layer 0 --
+                    # the design assumes layer 0 is the *already-embedded*
+                    # frontier handed over from the previous block, which is
+                    # why j==1's input substitution can replace it with
+                    # `qubit_map_pre_layer` wholesale.
+                    #
+                    # But `block_info[block][0]` is this block's *own* first
+                    # row, which the previous block never embedded -- so with
+                    # the un-shifted range, layer 0 landed on real, never-yet-
+                    # embedded nodes and they were silently dropped (confirmed
+                    # against the pre-H-optimization pipeline at commit
+                    # 0ad0e7a: cnot_s_cnot_h_2 at -b 10 lost H_BOX vertices
+                    # 128/133/138 entirely, i.e. 3 whole H gates, because each
+                    # sat exactly on a block's first row). Starting one row
+                    # earlier makes layer 0 genuinely be the previous block's
+                    # last row, restoring the invariant the skip relies on.
+                    # See docs/REFACTOR_LOG.md's dated entry.
+                    block_row_start = block_info[block][0]
+                    if block_row_start > 0:
+                        block_row_start -= 1
+                    block_range = [idx_to_row[block_row_start], idx_to_row[block_info[block][1]]]
                     graph_ = circuit.to_graph()
                     hadamard_box(graph_)
                     delete_singular_nodes(graph_)
@@ -647,6 +675,15 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     hadamard_edges_ = dissolve_hadamard_boxes(graph_)
                     layer_labels_ = layer_labeling_block_vanilla(graph_, block_range)
                     layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range, hadamard_edges_)
+                    # The fallback re-derives its own graph_ (no zx_optimization)
+                    # and its own block-scoped layering, so it strands its own
+                    # flags on output-port wires and needs the same backstop.
+                    # It matters: with this call qaoa_16 renders 47/48 (volume
+                    # 4374), without it 44/48 (volume 4698). An earlier removal
+                    # was mis-attributed -- vqe_16 scores 80/82 either way, it
+                    # is simply one of the run-to-run non-deterministic
+                    # benchmarks (its volume moved 3807/3645/3483 across runs).
+                    rematerialize_stranded_hadamards(graph_, layer_labels_, hadamard_edges_)
                     # Kept for the j==1 cross-block hand-off check below --
                     # that check needs `hadamard_edges_` still keyed on
                     # graph_'s own *raw* (pre-rename) ids, since that's the
@@ -660,7 +697,31 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     # still keyed on the *pre*-rename ids, has to get the same
                     # rename now or every `_hadamard_flip`/`_hadamard_step`
                     # membership check against it silently never matches.
-                    hadamard_edges_ = {frozenset(f"{v}_{block}" for v in edge) for edge in hadamard_edges_}
+                    #
+                    # Only the nodes this block actually embeds get the
+                    # suffix, though. `layer_labeling_block_vanilla` labels
+                    # nothing outside `block_range`, and an unlabelled node is
+                    # one the *main* pipeline embeds under its own id -- so
+                    # suffixing it invents an id that never exists, and the
+                    # real routing pair (in-block node + main-pipeline node)
+                    # matches nothing. Measured on qaoa_16: the flagged edge
+                    # (172, 190) has 172 on block 6's last row (row 48) and
+                    # 190 outside it (row 50), so the set held
+                    # {'172_6', '190_6'} while routing actually sees
+                    # ('190', '172_6') -- the H on that edge was simply never
+                    # applied. See docs/REFACTOR_LOG.md's dated entry.
+                    hadamard_edges_ = {
+                        frozenset(
+                            f"{v}_{block}" if layer_labels_.get(v) is not None else v
+                            for v in edge
+                        )
+                        for edge in hadamard_edges_
+                    }
+                    if _h_dbg:
+                        with open(_h_dbg, "a") as _fh:
+                            for _e in hadamard_edges_:
+                                _a, _b = tuple(_e)
+                                _fh.write(f"declared_block{block}\t{_a}\t{_b}\n")
                     # Same id-namespace problem, same fix, for io_info (see
                     # docs/REFACTOR_LOG.md's dated entry): `extract_io_nodes`
                     # here always reports the true *whole-circuit* input/
@@ -673,6 +734,21 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     io_info_ = extract_io_nodes(graph_)
                     io_info_ = {f"{k}_{block}": v for k, v in io_info_.items()}
                     rows_ = set(layer_labels_.values())
+                    if len(rows_) <= 1:
+                        # The loop below is `range(1, len(rows_))`, so a block
+                        # whose own range holds a single layer gives it nothing
+                        # to iterate over. `best_state` is still None from the
+                        # top of this outer iteration, so the function would
+                        # fall all the way through to `return None` -- bypassing
+                        # even the brute-force tier, which is supposed to make
+                        # returning nothing impossible. Confirmed on qaoa_16:
+                        # block 10 covers only the output-boundary row, the
+                        # loop was empty, and operation() returned None with
+                        # `AttributeError: 'NoneType' has no attribute
+                        # 'x_min_floor'` landing in the caller. Such a block has
+                        # no real node to embed anyway (boundaries are never
+                        # embedded), so carry the last good state forward.
+                        best_state = pre_state
 
                     # Second recover the information at the begining of the block
                     input_port_loc = block_state.embed_node_pos
@@ -730,7 +806,6 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
                         if j == 1:
                             # For the first layer, we need to change the input connect
-                            print(f"[DIAG] site B firing at block {block}, node_input_connect={node_input_connect}, qubit_map_pre_layer={qubit_map_pre_layer}")
                             node_input_connect_new = {}
                             input_values = list(node_input_connect.keys())
                             for key in input_values:
@@ -745,10 +820,38 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     # has to move onto the substituted pair, since
                                     # the natural predecessor id is never used
                                     # again after this.
+                                    # NB: deliberately only the predecessors
+                                    # `layer_info` actually reports. An earlier
+                                    # attempt also recovered "invisible"
+                                    # predecessors straight from graph_ (same
+                                    # qubit, earlier row, no layer label) when
+                                    # this list came back empty -- that is
+                                    # wrong: such a neighbour need not be the
+                                    # hand-off edge's far end (there can be
+                                    # nodes in between, already accounted for
+                                    # by the previous block), so it
+                                    # double-applies the flip. Measured:
+                                    # qaoa_16 -3 -> -10, grover_6 -1 -> -3.
+                                    # Transfer the H flag onto the hand-off pair --
+                                    # but only when the wire being handed over is
+                                    # NOT already an idle chain. If `substitute`
+                                    # has an `idle_h_track` entry, the main
+                                    # pipeline already walked this wire and folded
+                                    # any H on it into that chain's `h_count`;
+                                    # adding a flag as well makes the chain count
+                                    # the same physical H twice, h_count reaches 2,
+                                    # and the `h_count % 2` test then reads it as
+                                    # H*H = I and cancels the flip outright.
+                                    # Measured on qaoa_16: chain 106->132 closes
+                                    # with h_count=1 on the main-pipeline attempt
+                                    # but h_count=2 in the fallback that supersedes
+                                    # it, which is exactly why that collar vanished
+                                    # (4718 closes across the run read h_count=2).
+                                    # Dropping the transfer altogether is not an
+                                    # option: cnot_s_cnot_h_2 falls back to 17/20
+                                    # and qaoa_16 fails to compile at all.
                                     for natural_input in node_input_connect[key]:
-                                        matched = frozenset((key, natural_input)) in hadamard_edges_raw
-                                        print(f"[DIAG] siteB check key={key} natural_input={natural_input} matched={matched} hadamard_edges_raw={hadamard_edges_raw}")
-                                        if matched:
+                                        if frozenset((key, natural_input)) in hadamard_edges_raw:
                                             hadamard_edges_.add(frozenset((f"{key}_{block}", substitute)))
                                     node_input_connect_new[key] = [substitute]
                                 else:

@@ -1,0 +1,28 @@
+
+############ t_then_h ############
+Executing t_then_h benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 3.0 z_length: 5
+Space-time volume: 75.0
+Time: 5
+Space: 15.0
+Compilation time: 7.599546909332275
+Interactive pipe diagram written to: result/visualization/t_then_h_interactive.html
+QASM H-gate count: 2
+Expected collars (odd-length H runs, H*H=I cancelled): 2
+Rendered yellow-collar count: 2
+SAFETY CHECK PASSED
+
+############ h_then_t ############
+Executing h_then_t benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 3.0 z_length: 3
+Space-time volume: 45.0
+Time: 3
+Space: 15.0
+Compilation time: 4.2822699546813965
+Interactive pipe diagram written to: result/visualization/h_then_t_interactive.html
+QASM H-gate count: 2
+Expected collars (odd-length H runs, H*H=I cancelled): 2
+Rendered yellow-collar count: 2
+SAFETY CHECK PASSED

@@ -1,0 +1,15 @@
+Space-time volume: 4698.0
+
+=== 各类事件计数 ===
+  53803 step
+  15696 flip
+    245 ceiling_keep
+     48 declared_block6
+     48 declared_block5
+     48 declared_block3
+     48 declared_block2
+     47 declared_outer
+     46 declared_block9
+      2 basic_embedding
+
+=== 后缀擦肩而过的边(去重) ===

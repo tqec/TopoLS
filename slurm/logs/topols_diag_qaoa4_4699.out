@@ -1,0 +1,75 @@
+
+############ qaoa_4  -b 2 ############
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 17
+Space-time volume: 459.0
+Time: 17
+Space: 27.0
+Compilation time: 7.391796112060547
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 7
+SAFETY CHECK PASSED
+
+############ qaoa_4  -b 3 ############
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 14
+Space-time volume: 378.0
+Time: 14
+Space: 27.0
+Compilation time: 9.202445268630981
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 7
+SAFETY CHECK PASSED
+
+############ qaoa_4  -b 4 ############
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 14
+Space-time volume: 378.0
+Time: 14
+Space: 27.0
+Compilation time: 11.214253187179565
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 7
+SAFETY CHECK PASSED
+
+############ qaoa_4  -b 6 ############
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 12
+Space-time volume: 324.0
+Time: 12
+Space: 27.0
+Compilation time: 23.99985432624817
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 7
+SAFETY CHECK PASSED
+
+############ qaoa_4  -b 20 ############
+Executing qaoa_4 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 3.0 z_length: 10
+Space-time volume: 270.0
+Time: 10
+Space: 27.0
+Compilation time: 30.756648778915405
+Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html
+QASM H-gate count: 8
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 7
+Rendered yellow-collar count: 6
+SAFETY CHECK FAILED (diff -1)

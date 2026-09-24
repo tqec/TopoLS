@@ -1,0 +1,17 @@
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 52
+Space-time volume: 4212.0
+Time: 52
+Space: 81.0
+Compilation time: 2693.5798087120056
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html
+QASM H-gate count: 48
+Structurally unrenderable (H on a wire into an output port): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 47
+Rendered yellow-collar count: 45
+SAFETY CHECK FAILED (diff -2)
+=== blocks that used the fallback ===
+declared_block3
+declared_block6
+declared_block7

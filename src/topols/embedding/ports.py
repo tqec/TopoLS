@@ -1,4 +1,12 @@
 import math
+import os
+
+
+def _ceil_dbg(tag, key, extra="-"):
+    _p = os.environ.get("TOPOLS_H_DEBUG")
+    if _p:
+        with open(_p, "a") as _fh:
+            _fh.write(f"{tag}\t{key}\t{extra}\n")
 
 from topols.routing.color_algebra import ORI_MAP, edge_tracer
 
@@ -110,12 +118,14 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
                 path = dic["path"]
                 if key in best_state.idle_h_track:
                     start_node, cur_path, h_count = best_state.idle_h_track[key]
+                    _ceil_dbg("ceiling_keep", key, h_count)
                     best_state.idle_h_track[key] = [
                                 start_node,
                                 tuple(list(path)[::-1] + list(cur_path)[1:]),
                                 h_count
                                 ]
                 else:
+                    _ceil_dbg("ceiling_fresh_hcount0", key)
                     best_state.idle_h_track[key] = [
                                 f"{key}_old",
                                 tuple(list(path)[::-1]),

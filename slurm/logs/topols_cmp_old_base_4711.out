@@ -1,0 +1,30 @@
+
+############ grover_6 (OLD pipeline) ############
+Executing grover_6 benchmark.
+Embedding progress:
+x_length: 5.0 y_length: 7.0 z_length: 658
+Space-time volume: 23030.0
+Time: 658
+Space: 35.0
+Compilation time: 509.4010806083679
+Interactive pipe diagram written to: result/visualization/grover_6_interactive.html
+
+############ qft_16 (OLD pipeline) ############
+Executing qft_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 497
+Space-time volume: 40257.0
+Time: 497
+Space: 81.0
+Compilation time: 1308.2344176769257
+Interactive pipe diagram written to: result/visualization/qft_16_interactive.html
+
+############ qpe_16 (OLD pipeline) ############
+Executing qpe_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 530
+Space-time volume: 42930.0
+Time: 530
+Space: 81.0
+Compilation time: 1402.1634068489075
+Interactive pipe diagram written to: result/visualization/qpe_16_interactive.html

@@ -515,3 +515,81 @@ def extract_io_nodes(graph):
         result[v_out] = {"type": "output", "qubit": q}
 
     return result
+
+
+def rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges):
+    """H-gate embedding optimization, correctness backstop (see
+    docs/REFACTOR_LOG.md's dated entry).
+
+    `dissolve_hadamard_boxes` trades an H's cube for a flag on the edge it
+    sat on, which only works if something ever *routes* that edge. An edge
+    into a qubit's output port is never routed -- the boundary vertex has
+    `node_type_convert() == -1`, so `layer_info` drops it -- and a flag left
+    there is silently lost.
+
+    Most such flags are rescued automatically: idling-node insertion splits
+    the long run to the port and `_move_hadamard_flag` moves the flag onto
+    the first (routable) segment. That is why bv_16 (10 output-side H
+    gates), dj_16 (14) and vqe_16 render every collar with no help at all.
+    It only fails when the gap is already one layer, so no idle padding is
+    inserted -- measured on qaoa_4, where the flags on 31--37 and 30--39
+    stayed put and their collars vanished.
+
+    So: run this *after* idling insertion, when the rescues have happened,
+    and give a cube back to whatever is still stranded. Blanket-keeping
+    every output-side H-box instead is much worse -- it costs volume where
+    the rescue would have worked (bv_16 486 -> 729, dj_16 648 -> 810) and
+    even breaks cases that were already correct (vqe_16 82/82 -> 80/82).
+
+    Mutates `graph`, `layer_labels` and `hadamard_edges` in place. Returns
+    how many boxes were restored.
+    """
+    boundary_by_qubit = {}
+    for v in graph.vertices():
+        if graph.type(v) == zx.VertexType.BOUNDARY:
+            boundary_by_qubit.setdefault(graph.qubit(v), []).append(v)
+    output_boundaries = set()
+    for _q, vs in boundary_by_qubit.items():
+        for v in sorted(vs, key=graph.row)[1:]:
+            output_boundaries.add(v)
+
+    restored = 0
+    for edge in list(hadamard_edges):
+        ends = tuple(edge)
+        if len(ends) != 2:
+            continue
+        a, b = ends
+        port = a if a in output_boundaries else (b if b in output_boundaries else None)
+        if port is None:
+            continue
+        other = b if port == a else a
+        if not graph.connected(other, port):
+            continue
+        # Only the one-layer-gap case can still be stranded; anything wider
+        # was already split (and the flag moved) by idling insertion.
+        other_layer = layer_labels.get(other)
+        if other_layer is None:
+            continue
+
+        graph.remove_edge(graph.edge(other, port))
+        hbox = graph.add_vertex(ty=zx.VertexType.H_BOX,
+                                qubit=graph.qubit(port),
+                                row=(graph.row(other) + graph.row(port)) / 2)
+        graph.add_edge((other, hbox))
+        graph.add_edge((hbox, port))
+        # The box needs a layer of its own *strictly between* `other` and the
+        # port. Giving it the port's layer instead leaves it with no
+        # next-layer neighbour, so `layer_info` reports `output_count == 0`
+        # for it, driver.py's "no more output connections" branch fires and
+        # returns -- the box never gets embedded at all (measured: qaoa_16's
+        # restored box 644 was absent from pos_hist entirely). Pushing the
+        # port one layer further restores exactly the shape `hadamard_box`
+        # produces when it runs before layering, which is what the
+        # pre-optimization pipeline embedded happily. The port is the end of
+        # its qubit's wire, so nothing downstream needs renumbering.
+        layer_labels[hbox] = other_layer + 1
+        layer_labels[port] = other_layer + 2
+        hadamard_edges.discard(edge)
+        restored += 1
+
+    return restored

@@ -150,6 +150,11 @@ layer_to_block = layer_to_block_map(layer_labels, block_dic)
 # (ensures temporal continuity)
 layer_labels = idling_nodes_insertion(graph, layer_labels, hadamard_edges)
 
+# Correctness backstop for the H optimization: idling insertion has now had
+# its chance to move flags off the wires into the output ports; give a cube
+# back to whatever flag is still stranded there (see the function's docstring).
+rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges)
+
 # Extract input/output nodes for later analysis or visualization
 io_info = extract_io_nodes(graph)
 

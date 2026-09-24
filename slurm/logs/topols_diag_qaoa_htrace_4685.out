@@ -1,0 +1,24 @@
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 58
+Space-time volume: 4698.0
+Time: 58
+Space: 81.0
+Compilation time: 228.52436637878418
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html
+QASM H-gate count: 48
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 44
+SAFETY CHECK FAILED (diff -4)
+
+=== H trace summary ===
+trace file: /home/junyuzh/QEC/upgrade/TopoLS/slurm/logs/htrace_qaoa16_4685.tsv
+72849 /home/junyuzh/QEC/upgrade/TopoLS/slurm/logs/htrace_qaoa16_4685.tsv
+  56207 step
+  16354 flip
+     48 declared_outer
+     48 declared_block9
+     48 declared_block6
+     48 declared_block5
+     48 declared_block3
+     48 declared_block2
