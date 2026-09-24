@@ -188,4 +188,28 @@ the full 9-benchmark suite one more time now that this is fixed; decide
 whether to re-check `wstate_16`'s flagged (but unconfirmed) volume
 regression from the earlier full-experiment run.
 
+**H-gate embedding optimization (2026-09-23/24, commits `H-1`..`H-4`)**: H
+no longer gets its own cube. `zx_transform/simplify.dissolve_hadamard_boxes`
+removes the H-boxes, and the flip is decided by
+`embedding/hadamard.py`'s `HTable.needs_flip(A, B)` -- **H is a property
+of the circuit wire between two real nodes**, answered by a `(qubit, row)`
+interval, not a flag carried along idle chains or a count (`h_count` and
+the j==1 hand-off transfer are gone; that model double-counted across the
+gate-by-gate seam). A safety metric, `docs/check_hadamard_safety.py`,
+demands one rendered yellow collar per physical H (H\*H=I runs collapsed):
+**all 9 benchmarks pass it** (job 4808), with volumes at or below the
+paper's Full-Opt on 7 of 9 (dj_16 -27%, vqe_16 -13.5%). On the way, five
+independent holes in how a compile *ends* were found and fixed -- the
+final `ceiling(final=True)` seal was skipped on the Bug-9 path and on
+loop fall-through, brute-force layers were discarded at the seal
+(`ports.seal_brute_frontier`), `rows` was computed before
+`rematerialize` so the last layer was never visited, and one qubit's port
+pushed past the others left every other chain unsealed
+(`layering.align_output_ports`). Diagnostic tools that locate a missing H
+down to the wire and loop that embedded it: `docs/find_missing_h.py`,
+`docs/probe_tail.py`, `TOPOLS_TAIL_DEBUG`. **Read `docs/NEXT_SESSION.md`
+before touching any of this** -- it has the open items (`GOLDENS` update,
+qaoa_16's 4698/5022 fallback-dependent volume, ghz_16's budget artefact,
+`basic_embedding`'s `+2` slab) and the approaches already measured worse.
+
 **Not started**: Phase 3 (Rust port).

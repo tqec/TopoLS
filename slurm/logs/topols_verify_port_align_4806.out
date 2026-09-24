@@ -1,0 +1,40 @@
+
+################ bv_16 (-b 20 -l 4 -r 1) ################
+x_length: 9.0 y_length: 9.0 z_length: 6
+Space-time volume: 486.0
+Expected collars (odd-length H runs, H*H=I cancelled): 21
+Rendered yellow-collar count: 21
+SAFETY CHECK PASSED
+RETURN main-loop seal at i=3 block=1 brute_last=False layer nodes=[]
+  z_max=6; top layer: 16 nodes; idle/H nodes with no colour in the top two layers: 0 []
+
+################ dj_16 (-b 20 -l 4 -r 0) ################
+x_length: 9.0 y_length: 9.0 z_length: 8
+Space-time volume: 648.0
+Expected collars (odd-length H runs, H*H=I cancelled): 31
+Rendered yellow-collar count: 31
+SAFETY CHECK PASSED
+RETURN main-loop seal at i=6 block=2 brute_last=False layer nodes=[]
+  z_max=8; top layer: 16 nodes; idle/H nodes with no colour in the top two layers: 15 ['128_old', '131_old', '133_old', '135_old', '137_old', '139_old', '141_old', '143_old']
+
+################ qaoa_16 (-b 20 -l 4 -r 0) ################
+x_length: 9.0 y_length: 9.0 z_length: 58
+Space-time volume: 4698.0
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 48
+SAFETY CHECK PASSED
+RETURN main-loop seal at i=33 block=10 brute_last=False layer nodes=[]
+  z_max=58; top layer: 16 nodes; idle/H nodes with no colour in the top two layers: 31 ['445', '465', '504', '533', '547', '575', '586', '601']
+
+################ grover_6 (-b 20 -l 2 -r 0) ################
+x_length: 5.0 y_length: 7.0 z_length: 651
+Space-time volume: 22785.0
+Expected collars (odd-length H runs, H*H=I cancelled): 100
+Rendered yellow-collar count: 100
+SAFETY CHECK PASSED
+RETURN main-loop seal at i=589 block=166 brute_last=False layer nodes=[]
+  z_max=651; top layer: 6 nodes; idle/H nodes with no colour in the top two layers: 11 ['3455', '3666', '3743', '3757', '3758', '3759_old', '3760_old', '3761_old']
+expected H = 100   rendered collars = 100   H with a collar on their wire = 98   -> missing = 2
+NOTE 2 wire(s) render a collar but match no H (tool gap, not an embedding fact):
+#1  H ((4, 617),)   qubit 4, row 617
+#2  H ((5, 554),)   qubit 5, row 554

@@ -1,0 +1,8 @@
+Executing qaoa_16 benchmark.
+HTable: 48 same-qubit H, 0 cross-qubit H, 574 registered nodes
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 64
+Space-time volume: 5184.0
+Time: 64
+Space: 81.0
+Compilation time: 235.01971888542175

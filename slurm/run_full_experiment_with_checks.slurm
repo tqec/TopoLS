@@ -76,10 +76,13 @@ for entry in "${BENCHES[@]}"; do
     if [ "$compile_status" = "ok" ]; then
         check_log=$(mktemp)
         uv run --project "$REPO_ROOT" check_hadamard_safety.py -f "$name" 2>&1 | tee "$check_log"
-        qasm_h=$(grep -oP 'QASM H-gate count: \K[0-9]+' "$check_log" | tail -1)
+        # Denominator = the checker's own expectation (odd-length H runs,
+        # H*H=I cancelled), not the raw QASM `h` count -- grover_6 has 104
+        # h instructions but 100 physical H, qpe_16 443 vs 373.
+        expected_h=$(grep -oP 'Expected collars[^:]*: \K[0-9]+' "$check_log" | tail -1)
         rendered_h=$(grep -oP 'Rendered yellow-collar count: \K[0-9]+' "$check_log" | tail -1)
         verdict=$(grep -oE 'SAFETY CHECK (PASSED|FAILED)' "$check_log" | tail -1)
-        hcheck="${rendered_h:-?}/${qasm_h:-?} ${verdict:-?}"
+        hcheck="${rendered_h:-?}/${expected_h:-?} ${verdict:-?}"
         rm -f "$check_log"
     fi
 

@@ -20,7 +20,7 @@ from topols.export.bgraph import load_compilation_result
 from topols.zx_transform.simplify import hadamard_box, delete_singular_nodes, spread_rows, zx_optimization, dissolve_hadamard_boxes
 from topols.zx_transform.partition import find_block, circuit_slicing
 from topols.zx_transform.layering import (
-    layer_labeling, idling_nodes_insertion, rematerialize_stranded_hadamards, layer_to_block_map,
+    layer_labeling, idling_nodes_insertion, rematerialize_stranded_hadamards, align_output_ports, layer_to_block_map,
     layer_labeling_block_vanilla, idling_nodes_insertion_block_vanilla, node_type_convert,
 )
 
@@ -45,6 +45,7 @@ labels = layer_labeling(g, list(range(circuit.qubits)), block_dic)
 l2b = layer_to_block_map(labels, block_dic)
 labels = idling_nodes_insertion(g, labels, hedges)
 rematerialize_stranded_hadamards(g, labels, hedges)
+align_output_ports(g, labels)
 
 T = {0: "Z", 1: "X", 2: "idle", 3: "H", 4: "S", 5: "T", -1: "BOUNDARY"}
 print(f"distinct rows: {len(rows)}  (last five: {rows[-5:]})")
@@ -74,6 +75,7 @@ for block in blocks[-3:]:
     l_ = layer_labeling_block_vanilla(g_, block_range)
     l_ = idling_nodes_insertion_block_vanilla(g_, l_, block_range, e_)
     rematerialize_stranded_hadamards(g_, l_, e_)
+    align_output_ports(g_, l_)
     by_layer = collections.defaultdict(list)
     for v, L in l_.items():
         by_layer[L].append(v)

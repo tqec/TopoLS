@@ -183,8 +183,86 @@ The increase is the cost of embedding what used to be dropped plus the
 seal; the brute-force stack is visibly inefficient and is now worth
 optimising on its own.
 
-Not yet run: the other five benchmarks under the wire model. `GOLDENS`
-untouched. `docs/NEXT_SESSION.md` updated.
+### Full-suite attempt 1 (job 4795, cancelled after grover_6): a fourth hole
+
+grover_6 came out **95/100** with all five misses on output-port wires,
+"wire end still idle". New probe `docs/probe_tail.py`-style measurement of
+`len(rows)` vs. the last layer: `docs/prog.py` computed `rows` and
+`layer_to_block` BEFORE idling/rematerialize, and rematerialize pushes a
+port one layer further, so on the two benchmarks with a restored box
+(grover_6: layer 589 of 0..588, qaoa_16: layer 33 of 0..32) the main loop
+never visited the last layer, no boundary-only layer ever triggered the
+seal, and `operation()` fell out of its loop unsealed. qaoa_16 had only
+been rescued by the block-10 fallback's Bug-9 seal. Fixes: prog.py
+recomputes `rows`/`layer_to_block` after rematerialize (a new layer joins
+the last block); `driver.py`'s fall-through return now seals (brute-aware)
+instead of returning colourless chains; `ceiling(final=True)` flips a
+sealed REAL node by `needs_flip_to_end(key_old)` so an H right before the
+port renders even if its restored box never got a layer.
+
+### Geometry of the brute-force seal (user-reported: two outputs taller)
+
+`seal_brute_frontier` coloured stubs in place, and basic_embedding places
+idle/H nodes at `z_ceil = max+2` even in layers without S/T nodes, so
+qaoa_16's two H boxes ended at z=61 over an empty z=60 while 14 outputs
+ended at z=59. Fixes: basic_embedding uses `max+1` for layers with no S/T
+node; `seal_brute_frontier` first lifts every frontier stub to one common
+ceiling (extending the existing `X_old -> X` path IN PLACE -- appending a
+second segment left the old stub position as a node-less junction and
+crashed export's `edge_process` with `KeyError`). Verified twice on qaoa_16
+(job 4802): brute path taken, 48/48, 16 outputs flat at z=64, 0 orphan
+path endpoints. The T layer's own `+2` headroom (a pipe-only slab) remains;
+that is basic_embedding's pre-existing cost.
+
+### Full-suite attempt 2 (job 4803, cancelled after grover_6): the fifth hole
+
+grover_6 **96/100**. `docs/probe_tail.py` on grover_6: the top of the pkl
+held the restored box 3759 (sealed) and 1263 (sealed) but the idle ends
+3758/3743/3666/3455 colourless. Cause: the final seal colours what
+`reward()` finds open in the LAST layer's state; rematerialize had pushed
+one qubit's port to layer 589 while the other qubits' last idles sat in
+587 with their ports in 588 -- so the last layer's state contained only
+the box, and the seal never saw the other chains. The old pipeline never
+had this because layer_labeling put every port on one final layer. Fix:
+`layering.align_output_ports(graph, layer_labels)` -- after rematerialize,
+every port earlier than the latest is given idles up to the last layer
+and moved there (block-scoped labelling handled: unlabelled ports are
+skipped). Called in prog.py and in driver.py's fallback for `graph_`.
+
+### Final results (job 4806)
+
+| benchmark | before (854ee28) | now |
+|---|---|---|
+| bv_16 | 486, 21/21 | **486, 21/21** |
+| dj_16 | 648, 31/31 | **648, 31/31** |
+| qaoa_16 | 4698, 44/48 | **4698, 48/48 PASSED** -- main-loop seal at the aligned last layer, no fallback, no extra layers |
+| grover_6 | 22925, 94/100 | **22785, 100/100 PASSED** |
+
+qaoa_16's earlier +2/+7 layers (4860/4941/5184/5265) were the price of the
+missing seal paths, not of correctness: with ports aligned the main loop
+reaches the boundary-only layer, seals everything, and the original 4698
+comes back with all 48 collars.
+
+### Full 9-benchmark suite on the final code (job 4808, 1h05m): 9/9 PASSED
+
+| benchmark | 854ee28 (job 4737) | now (job 4808) | volume |
+|---|---|---|---|
+| bv_16 | 486, 21/21 | 486, **21/21** | = |
+| dj_16 | 648, 31/31 | 648, **31/31** | = |
+| grover_6 | 22925, 94/100 FAIL | 22785, **100/100** | -0.6% |
+| qft_16 | 37827, 315/328 FAIL | 36207, **328/328** | -4.3% |
+| qpe_16 | 38232, 370/373 FAIL | 39609, **373/373** | +3.6% (inside its 38.2k-39.2k band) |
+| vqe_16 | 3645, 82/82 | 3645, **82/82** | = |
+| ghz_16 | 972, 1/1 | 972, **1/1** | = |
+| wstate_16 | 8262, 74/74 | 8262, **74/74** | = |
+| qaoa_16 | 4698, 44/48 FAIL | 5022, **48/48** | +6.9% on this draw (4698 when block 9 does not fall back, job 4806) |
+
+Every H in every benchmark renders exactly once. The summary column's
+denominator (`H=100/104` etc.) is the raw QASM `h` count; the checker's
+verdict is against the H\*H=I-corrected expectation (grover 100, qft 328,
+qpe 373, vqe 82) -- the summary script now prints that instead.
+`GOLDENS` still untouched; all of today's work is uncommitted on top of
+`854ee28`. `docs/NEXT_SESSION.md` updated.
 
 ---
 

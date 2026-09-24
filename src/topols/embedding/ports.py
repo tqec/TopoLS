@@ -9,6 +9,7 @@ def _ceil_dbg(tag, key, extra="-"):
             _fh.write(f"{tag}\t{key}\t{extra}\n")
 
 from topols.routing.color_algebra import ORI_MAP, edge_tracer
+from topols.routing.boundary import vertical_z_path
 
 # ---------------------------------------------------------------------------
 # Other Function
@@ -92,6 +93,45 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
             ori = dic["ori"]
             best_state.embed_node_ori[key] = ori
 
+    if final:
+        # Wire-property H model, final seal of a REAL node with an open
+        # output: the lift `key_old -> key` IS this qubit's last wire, to
+        # the output port. If that wire carries an odd number of H (an H
+        # right before the port whose restored box was never embedded --
+        # grover_6's row-670 H sat in a layer the main loop never visited),
+        # the node's ceiling colour must flip. reward() computed
+        # ceiling_track[key]["ori"] without knowing that; redo its exact
+        # formula with curr_type flipped. Idle/H chains are handled in the
+        # idle branch below via needs_flip_to_end(start_node); non-final
+        # ceilings must not flip (the next real node applies the H).
+        for key, dic in ceiling_track.items():
+            t0 = node_type.get(key)
+            if t0 not in (0, 1, 4, 5) or "ori" not in dic:
+                continue
+            old = f"{key}_old"
+            if old not in best_state.embed_node_ori or not best_state.hadamard_edges.needs_flip_to_end(old):
+                continue
+            path = tuple(dic["path"])
+            if t0 in (4, 5):
+                curr_type, last_dir = edge_tracer(path, (best_state.embed_node_ori[old], 0))
+                curr_type = 1 - curr_type
+                if ori_map[(last_dir, curr_type, 0)] == 'k':
+                    dic["ori"] = ori_map[(last_dir, curr_type, 1)]
+                    dic["type"] = 1
+                else:
+                    dic["ori"] = ori_map[(last_dir, curr_type, 0)]
+                    dic["type"] = t0
+            else:
+                curr_type, last_dir = edge_tracer(path, (best_state.embed_node_ori[old], t0))
+                curr_type = 1 - curr_type
+                if ori_map[(last_dir, curr_type, t0)] == 'k':
+                    dic["ori"] = ori_map[(last_dir, curr_type, 1 if t0 != 1 else 0)]
+                    dic["type"] = 1 if t0 != 1 else 0
+                else:
+                    dic["ori"] = ori_map[(last_dir, curr_type, t0)]
+                    dic["type"] = t0
+            best_state.embed_node_ori[key] = dic["ori"]
+
     for key, dic in ceiling_track.items():
         type = dic["type"]
         if type > 1 and type not in (4, 5):
@@ -173,11 +213,55 @@ def seal_brute_frontier(best_state):
     type 0. Mutates and returns best_state.
     """
     ori_map = ORI_MAP
-    for key, (start_node, cur_path, _h) in list(best_state.idle_h_track.items()):
-        if best_state.embed_node_type.get(key) not in (2, 3):
+    frontier = [key for key, (start_node, _p, _h) in best_state.idle_h_track.items()
+                if best_state.embed_node_type.get(key) in (2, 3)
+                and start_node in best_state.embed_node_ori]
+    if not frontier:
+        return best_state
+
+    # Like ceiling(), bring every output end to ONE ceiling: basic_embedding
+    # stacks layer by layer, so a qubit whose last layer was an H box ends
+    # higher than the others (measured: two ends at z=61, fourteen at z=59).
+    # Extend each lower stub straight up when the column is free; the
+    # extension is part of the same idle chain, so it is prepended to the
+    # chain path (which runs from the chain END back to its origin).
+    occ = set(best_state.occupied)
+    z_top = max(best_state.embed_node_pos[k][2] for k in frontier)
+    paths = list(best_state.embed_path)
+    for key in frontier:
+        x, y, z = best_state.embed_node_pos[key]
+        if z >= z_top:
             continue
-        if start_node not in best_state.embed_node_ori:
+        column = [(x, y, zz) for zz in range(z + 1, z_top + 1)]
+        if any(pt in occ for pt in column):
             continue
+        seg = vertical_z_path((x, y, z), (x, y, z_top))
+        start_node, cur_path, h = best_state.idle_h_track[key]
+        best_state.idle_h_track[key] = [start_node, tuple(seg[::-1]) + tuple(cur_path)[1:], h]
+        best_state.embed_node_pos[key] = (x, y, z_top)
+        if key in best_state.idle_place:
+            best_state.idle_place[key] = (x, y, z_top)
+        # The stub's old position is no longer a node, so the recorded path
+        # that ends there (basic_embedding's `X_old -> X` vertical) must be
+        # extended in place rather than joined by a second segment --
+        # export's get_edge() keys every path by the nodes at its two ends
+        # and a junction with no node there is a KeyError downstream.
+        old_end = (x, y, z)
+        extended = False
+        for idx, p in enumerate(paths):
+            pp = [tuple(int(c) for c in q) for q in p]
+            if pp[-1] == old_end:
+                paths[idx] = tuple(pp + seg[1:]); extended = True; break
+            if pp[0] == old_end:
+                paths[idx] = tuple(list(reversed(seg[1:])) + pp); extended = True; break
+        if not extended:
+            paths.append(tuple(seg))
+        occ.update(seg)
+    best_state.embed_path = tuple(paths)
+    best_state.occupied = frozenset(occ)
+
+    for key in frontier:
+        start_node, cur_path, _h = best_state.idle_h_track[key]
         st = 0 if best_state.embed_node_type.get(start_node) in (4, 5) else best_state.embed_node_type.get(start_node, 0)
         curr_type, last_dir = edge_tracer(tuple(cur_path)[::-1], (best_state.embed_node_ori[start_node], st))
         if best_state.hadamard_edges.needs_flip_to_end(start_node):

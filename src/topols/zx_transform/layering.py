@@ -593,3 +593,65 @@ def rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges):
         restored += 1
 
     return restored
+
+
+def align_output_ports(graph, layer_labels):
+    """Make every qubit's output port sit on the same, last layer.
+
+    Why (2026-09-24, grover_6): the driver's final seal colours the chains
+    that are open in the LAST layer's state -- `reward()` builds
+    `ceiling_track` from that state's `output_connect`. Before
+    rematerialize_stranded_hadamards that was every qubit, because
+    layer_labeling puts all output boundaries on one final layer and idling
+    fills every gap. rematerialize pushes ONE qubit's port two layers on
+    (box at L+1, port at L+2), so the other qubits' last idles now sit in
+    layer L with nothing after them: they are not in layer L+1's state,
+    the seal never sees them, and their output ends stay colourless
+    (grover_6: 1263 and its box were sealed, the idle ends 3758/3743/3666/
+    3455 were not -- 4 of 100 collars lost). Restore the invariant: for
+    every port earlier than the latest one, insert idles on its wire up to
+    the last layer and move the port there.
+
+    Works for the fallback's block-scoped labelling too: ports whose wire
+    node is unlabelled (outside the block) are left alone; if no port is
+    labelled at all there is nothing to align. Mutates graph and
+    layer_labels in place; returns the number of idles inserted.
+    """
+    ports = []
+    by_qubit = {}
+    for v in graph.vertices():
+        if graph.type(v) == zx.VertexType.BOUNDARY:
+            by_qubit.setdefault(graph.qubit(v), []).append(v)
+    for _q, vs in by_qubit.items():
+        vs = sorted(vs, key=graph.row)
+        ports.extend(vs[1:])                       # every boundary but the input
+    labelled = [p for p in ports if layer_labels.get(p) is not None]
+    if not labelled:
+        return 0
+    l_max = max(layer_labels[p] for p in labelled)
+    inserted = 0
+    for port in ports:
+        nb = list(graph.neighbors(port))
+        if len(nb) != 1:
+            continue
+        u = nb[0]
+        lu = layer_labels.get(u)
+        if lu is None or lu >= l_max:
+            continue
+        lp = layer_labels.get(port)
+        if lp is not None and lp >= l_max:
+            continue
+        graph.remove_edge(graph.edge(u, port))
+        prev = u
+        n_idle = l_max - lu - 1
+        for k, layer in enumerate(range(lu + 1, l_max)):
+            row = graph.row(u) + (graph.row(port) - graph.row(u)) * (k + 1) / (n_idle + 1)
+            idle = graph.add_vertex(ty=zx.VertexType.Z, qubit=graph.qubit(port), row=row)
+            graph.set_phase(idle, 0)
+            layer_labels[idle] = layer
+            graph.add_edge((prev, idle))
+            prev = idle
+            inserted += 1
+        graph.add_edge((prev, port))
+        layer_labels[port] = l_max
+    return inserted

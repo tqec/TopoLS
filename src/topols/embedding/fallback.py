@@ -274,15 +274,21 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
     _bf_mark("entered")
 
     z_ceil = max(value[2] for value in embed_node_pos.values())+2
+    # Idle / H-box nodes are placed straight on the ceiling. `z_ceil` is
+    # +2 so that an S/T node at +1 has room for its exit at +2; a layer
+    # with no S/T node has nothing at +1 and would leave an empty slab
+    # (measured: qaoa_16's two output-side H boxes sat at z=61 over an
+    # empty z=60, two cubes above every other qubit's output). Use +1 then.
+    z_layer = z_ceil if any(node_type[n] in (4, 5) for n in input_connect) else z_ceil - 1
 
     for node in input_connect:
         if node in embed_node_pos:
             continue
         if node_type[node] == 2:
             pos = qubit_pose[input_connect[node][0]][:2]
-            embed_node_pos[node] = (pos[0], pos[1], z_ceil)
+            embed_node_pos[node] = (pos[0], pos[1], z_layer)
             embed_node_type[node] = node_type[node]
-            path = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_ceil))
+            path = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_layer))
             embed_path.append(tuple(path))
             for pt in path:
                 occupied.add(pt)
@@ -301,13 +307,13 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                                 tuple(path[::-1]),
                                 _hadamard_step(hadamard_edges, 0, node, input_connect[node][0])
                                 ]
-            idle_place[node] = (pos[0], pos[1], z_ceil)
+            idle_place[node] = (pos[0], pos[1], z_layer)
 
         if node_type[node] == 3:
             pos = qubit_pose[input_connect[node][0]][:2]
-            embed_node_pos[node] = (pos[0], pos[1], z_ceil)
+            embed_node_pos[node] = (pos[0], pos[1], z_layer)
             embed_node_type[node] = node_type[node]
-            path = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_ceil))
+            path = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_layer))
             embed_path.append(tuple(path))
             for pt in path:
                 occupied.add(pt)

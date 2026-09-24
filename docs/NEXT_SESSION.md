@@ -23,36 +23,40 @@ there, all on top of the committed code:
    `basic_embedding` results were thrown away because the seal acted on
    the stale `pre_state`. Got (11,70) and (15,70).
 
-Verification set (job 4794):
+Two more seal holes were found by the full suite and fixed the same day
+(details in the log): `rows`/`layer_to_block` were computed before
+rematerialize (last layer never visited -> unsealed fall-through), and
+one qubit's port pushed past the others left the other chains outside
+the last layer's state (-> `layering.align_output_ports`). The brute
+seal also now lifts every output end to one flat ceiling.
+
+Verification set (job 4806):
 
 | benchmark | config | result |
 |---|---|---|
 | bv_16 | `-b 20 -l 4 -r 1 -s 2 -t 2 -i 1000` | 486, 21/21 (unchanged) |
 | dj_16 | `-b 20 -l 4 -r 0 ...` | 648, 31/31 (unchanged) |
-| cnot_s_cnot_h_2 | `-b 10 ...` | 975, 20/20 (unchanged) |
-| qaoa_16 | `-b 20 -l 4 -r 0 ...` | **48/48**; volume 4941 (z=61) or 5265 (z=65) |
+| cnot_s_cnot_h_2 | `-b 10 ...` | 975, 20/20 (job 4794) |
+| qaoa_16 | `-b 20 -l 4 -r 0 ...` | **4698, 48/48** (no fallback, no extra layers) |
+| grover_6 | `-b 20 -l 2 -r 0 ...` | **22785, 100/100** (was 22925, 94/100) |
 
 ## Open
 
-1. **Run the other five benchmarks** (grover_6, qft_16, qpe_16, vqe_16,
-   wstate_16, ghz_16) with `slurm/run_full_experiment_with_checks.slurm`
-   and compare against job 4737 (`slurm/logs/full_exp_summary_4737.txt`).
-   qft_16/qpe_16 have length-2/3 H*H=I runs that `HTable.from_graph`
-   collapses by parity -- exercised so far only on the four above.
-   `HTable.cross` (H between qubits) was empty on all four; report its
-   count on the others.
-2. **Volume.** qaoa_16 was 4698 and is now 4941 or 5265 depending on
-   whether block 9 falls back. The tail that used to be dropped is now
-   embedded, and the brute-force stack (`basic_embedding`, one z step per
-   node) is visibly expensive. Decide on `GOLDENS` after the full suite
-   (rule 4: log as an intentional fix); consider optimising
-   `basic_embedding`'s placement separately.
-3. **Non-determinism is now visible on qaoa_16** (two volumes, same
-   collar count). It was always there -- both paths used to discard the
-   same tail.
+1. **Full suite done: 9/9 PASSED** (job 4808,
+   `slurm/logs/full_exp_summary_4808.txt`; table in the log). Every H in
+   every benchmark renders exactly once. Volumes: grover −0.6%, qft −4.3%,
+   qpe +3.6% (inside its band), qaoa 5022 on that draw / 4698 when block 9
+   does not fall back, the rest identical to 4737.
+2. **`GOLDENS`** (rule 4: intentional fix) and **commit**. Suggested
+   goldens = job 4808's values; qaoa_16 needs a tolerance or a pinned
+   path (4698 vs 5022 depends on whether block 9 falls back).
+3. **basic_embedding** still stacks with a `+2` T-exit slab and is used
+   whenever MCTS fails a layer; more `-s`/`-t` should keep MCTS from
+   falling back at all (user's point) -- worth a `-s 5 -t 10` comparison
+   with `TOPOLS_TAIL_DEBUG` once the suite is done.
 4. `git stash@{0}` holds the abandoned identity-list attempt; drop it once
-   this is committed. `TOPOLS_TAIL_DEBUG` trace hooks in `driver.py` are
-   env-gated and free when off; keep or strip at commit time.
+   this is committed. `TOPOLS_TAIL_DEBUG` hooks are env-gated and free
+   when off.
 
 ## Do not retry
 

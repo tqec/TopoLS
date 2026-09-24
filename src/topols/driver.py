@@ -16,6 +16,7 @@ from topols.zx_transform.layering import (
     layer_info,
     extract_io_nodes,
     rematerialize_stranded_hadamards,
+    align_output_ports,
 )
 
 # Phase 2 parallelization (see docs/REFACTOR_LOG.md's dated entry): the two
@@ -704,6 +705,11 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     # is simply one of the run-to-run non-deterministic
                     # benchmarks (its volume moved 3807/3645/3483 across runs).
                     rematerialize_stranded_hadamards(graph_, layer_labels_, hadamard_edges_)
+                    # Same port alignment as docs/prog.py (see
+                    # layering.align_output_ports): a rematerialized box pushes
+                    # one port past the block's other ports, and the j-loop's
+                    # final seal would then miss every other qubit's chain.
+                    align_output_ports(graph_, layer_labels_)
                     # Wire-property model: the fallback's own flagged-edge set
                     # above only serves idling/rematerialize on graph_. For
                     # routing decisions, register graph_'s labelled vertices
@@ -1218,5 +1224,23 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         pre_node_type = node_type
         brute_last = False
 
-    _tail("RETURN fall-through at end of operation() (no seal)")
+    # Falling out of the layer loop means no boundary-only layer was ever
+    # visited, so none of the three `node_output_connect == {}` seal sites
+    # ran and every open idle chain / open output is still colourless at
+    # the top. That must never be how a compile ends (measured: grover_6
+    # lost all 5 output-side H collars this way, job 4795). Seal here with
+    # the same logic as those sites.
+    _tail(f"RETURN fall-through at end of operation(): sealing (brute_last={brute_last})")
+    if brute_last:
+        best_state = seal_brute_frontier(pre_brute_state)
+    else:
+        best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type, final=True)
+    path = list(best_state.embed_path)
+    for _, track in best_state.idle_h_track.items():
+        path.append(track[1])
+    best_state.embed_path = tuple(path)
+    pos_hist.update(best_state.embed_node_pos)
+    ori_hist.update(best_state.embed_node_ori)
+    type_hist.update(best_state.embed_node_type)
+    path_hist.extend(best_state.embed_path)
     return best_state, pos_hist, ori_hist, path_hist, type_hist

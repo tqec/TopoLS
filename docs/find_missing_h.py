@@ -55,7 +55,7 @@ from topols.zx_transform.simplify import (
 )
 from topols.zx_transform.partition import find_block, circuit_slicing
 from topols.zx_transform.layering import (
-    layer_labeling, idling_nodes_insertion, rematerialize_stranded_hadamards,
+    layer_labeling, idling_nodes_insertion, rematerialize_stranded_hadamards, align_output_ports,
     layer_labeling_block_vanilla, idling_nodes_insertion_block_vanilla,
     node_type_convert,
 )
@@ -179,6 +179,7 @@ assert set(pre_outer) == set(outer_set), "identity walk disagrees with dissolve"
 outer_layers = layer_labeling(g, list(range(circuit.qubits)), block_dic)
 outer_layers = idling_nodes_insertion(g, outer_layers, outer_set)
 rematerialize_stranded_hadamards(g, outer_layers, outer_set)
+align_output_ports(g, outer_layers)
 outer_where = track_flags(g, pre_outer, outer_set)
 expected_ids = set(pre_outer.values())
 
@@ -216,6 +217,7 @@ for block in blocks_seen:
     l_ = layer_labeling_block_vanilla(g_, block_range)
     l_ = idling_nodes_insertion_block_vanilla(g_, l_, block_range, set_)
     rematerialize_stranded_hadamards(g_, l_, set_)
+    align_output_ports(g_, l_)
     where_ = track_flags(g_, pre_, set_)
     block_graphs[block] = g_
     sfx = lambda v: f"{v}_{block}" if l_.get(v) is not None else str(v)

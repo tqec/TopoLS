@@ -158,10 +158,31 @@ layer_labels = idling_nodes_insertion(graph, layer_labels, hadamard_edges)
 # its chance to move flags off the wires into the output ports; give a cube
 # back to whatever flag is still stranded there (see the function's docstring).
 rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges)
+# rematerialize can push one qubit's port past the others'; the final seal
+# only colours what is open in the last layer, so bring every port back onto
+# one last layer (see align_output_ports' docstring -- grover_6 lost 4 collars).
+from topols.zx_transform.layering import align_output_ports
+align_output_ports(graph, layer_labels)
 # Now that idles and restored boxes exist, register every vertex's
 # (qubit, row) under the id the embedding will use.
 h_table.register_graph(graph)
 print(h_table.stats())
+
+# `rows` and `layer_to_block` were computed BEFORE idling/rematerialize.
+# Idling only fills existing gaps, but rematerialize pushes a qubit's output
+# port one layer further to make room for the restored H box, so the graph
+# can now have a layer that `rows` does not know about. operation() iterates
+# `range(1, len(rows))`, so that last layer was never visited, the
+# boundary-only layer that triggers the final ceiling seal never came, and
+# the compile fell out of the loop unsealed -- every output-side H collar
+# lost (measured: grover_6 95/100 with all 5 misses on port wires, its last
+# layer 589 unvisited; qaoa_16 likewise, rescued only by chance through the
+# block-10 fallback). Recompute both; a new layer belongs to the last block.
+rows = set(layer_labels.values())
+_last_block = max(layer_to_block.values())
+for _L in rows:
+    if _L not in layer_to_block:
+        layer_to_block[_L] = _last_block
 
 # Extract input/output nodes for later analysis or visualization
 io_info = extract_io_nodes(graph)
