@@ -223,7 +223,17 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
                 best_state = n.state
         stack.extend(n.children)
 
-    if best_state is None:
+    # Return the best state seen ANYWHERE, not "a terminal node in the tree if
+    # one exists, else the best rollout". The tree only contains terminals
+    # that happened to be expanded, and the first one to appear is usually
+    # poor; `best_rollout_state` is the best over every rollout so far. The
+    # old preference for the tree terminal meant a LONGER search (deeper
+    # tree, first terminal appears) could return a worse state than a shorter
+    # one -- measured 2026-09-24: dj_16 648 at -t 2 but 1215 at -t 5 (job
+    # 4817). With max() over both, the result is the best-so-far of a
+    # deterministic iteration sequence, so more time / iterations / seeds can
+    # never return a worse state for the same (seed, state).
+    if best_state is None or (best_rollout_state is not None and best_rollout > best_val):
         best_state = best_rollout_state
 
     return best_state

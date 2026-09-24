@@ -32,6 +32,10 @@ parser.add_argument('--iter_num', '-i', type=int, default=10000,
                     help='Number of iterations for MCTS')
 parser.add_argument('--saving_name', '-csv', default='result', 
                     help='csv result file name (without .csv extension)')
+parser.add_argument('--backtrack', type=int, default=0,
+                    help='1 = when a layer\'s MCTS fails from the best previous-layer state, retry it from the '
+                         'other seeds\' previous-layer states (next-best first) before the ceiling-retry / '
+                         'gate-by-gate ladder. Off by default.')
 parser.add_argument('--spread_num', '-sp', type=int, default=0,
                     help='For dense circuit we will spread the quantum gates into different rows')
 parser.add_argument('--initial_block', '-b0', type=int, default=0,
@@ -192,7 +196,7 @@ io_info = extract_io_nodes(graph)
 # ============================================================
 
 time0 = time.time()
-best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num, hadamard_edges=h_table, io_info=io_info)
+best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num, hadamard_edges=h_table, io_info=io_info, backtrack=args.backtrack)
 time1 = time.time()
 x_length, y_length, z_length, volume = calculate_space_time(pos_hist, path_hist, best_state.x_min_floor, best_state.x_max_floor, best_state.y_min_floor, best_state.y_max_floor)
 space = x_length * y_length

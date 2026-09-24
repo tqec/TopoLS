@@ -1,0 +1,15 @@
+bt     s   t   volume    collars  wall_s  backtrack_events
+0      2   2   729.0     31/31    16      backtrack_lines=0 fallbacks=0
+1      2   2   729.0     31/31    30      backtrack_lines=2 fallbacks=0
+      BACKTRACK i=4 block=1: MCTS tier failed from the chosen layer-3 state; 3 alternative(s)
+      BACKTRACK i=4: no alternative worked; continuing to the ceiling/fallback ladder
+0      2   5   729.0     31/31    31      backtrack_lines=0 fallbacks=0
+1      2   5   729.0     31/31    63      backtrack_lines=2 fallbacks=0
+      BACKTRACK i=4 block=1: MCTS tier failed from the chosen layer-3 state; 3 alternative(s)
+      BACKTRACK i=4: no alternative worked; continuing to the ceiling/fallback ladder
+1      5   2   648.0     31/31    24      backtrack_lines=2 fallbacks=0
+      BACKTRACK i=4 block=1: MCTS tier failed from the chosen layer-3 state; 9 alternative(s)
+      BACKTRACK i=4: alternative layer-3 state (vol=324.0) worked -> vol=567.0
+1      8   2   567.0     31/31    25      backtrack_lines=2 fallbacks=0
+      BACKTRACK i=4 block=1: MCTS tier failed from the chosen layer-3 state; 15 alternative(s)
+      BACKTRACK i=4: alternative layer-3 state (vol=324.0) worked -> vol=486.0

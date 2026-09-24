@@ -1,0 +1,16 @@
+################ ghz_16 -s 8 -t 5 --backtrack 0 ################
+x_length: 9.0 y_length: 9.0 z_length: 3
+Space-time volume: 243.0
+wall=20s
+MAIN i=1 block=0
+MAIN i=2 block=0
+MAIN i=3 block=1
+RETURN main-loop seal at i=3 block=1 brute_last=False layer nodes=[]
+################ ghz_16 -s 8 -t 5 --backtrack 1 ################
+x_length: 9.0 y_length: 9.0 z_length: 3
+Space-time volume: 243.0
+wall=21s
+MAIN i=1 block=0
+MAIN i=2 block=0
+MAIN i=3 block=1
+RETURN main-loop seal at i=3 block=1 brute_last=False layer nodes=[]

@@ -11,6 +11,123 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-24 (evening) — "More seeds / time must never give a worse volume": mcts() best-so-far fix, opt-in one-layer backtrack, per-benchmark budget sweep
+
+User's requirement, verbatim in spirit: modest increases in `-t` (2 -> 5)
+or `-s` (2 -> 5/8) must show volume going down, never up, within a
+compile time that stays about the same; and ghz_16 must get back to its
+243. (An earlier detour that replaced A*'s wall clock with an expansion
+cap and made `-t` a safety cap -- commit `da55d43` -- was reverted at
+the user's request as commit `55717a6`; the anytime wall clock stays.)
+
+### Measurement first (job 4817, code = H-4)
+
+| | s2 t2 (x2) | s5 t2 | s8 t2 | s2 t5 | s5 t5 |
+|---|---|---|---|---|---|
+| bv_16 | 486 / 486 | 486 | 486 | 486 | 486 |
+| dj_16 | 648 / 648 | 648 | 567 | **1215** | 648 |
+| ghz_16 | 972 / 972 | 972 | 324 (10 s) | 972 (108 s) | 405 |
+
+So it did happen: dj_16 got *worse* with more time (648 -> 1215, z 8 ->
+15), reproducibly (job 4818, two identical traces): at `-t 5` layer 4's
+MCTS tier fails from the layer-3 state that was chosen, the ceiling retry
+fails too, and the block goes gate-by-gate for 15 layers. Wall 15 s ->
+83 s. No unseeded randomness exists (only seeded `random.shuffle`), so
+the iteration sequence of a call is a deterministic prefix; the
+difference came from *which state* layer 3 returned.
+
+### Fix 1 -- `mcts()` returned "a terminal node in the tree if any, else
+the best rollout", which is not best-so-far
+
+`embedding/mcts.py`: the final tree scan picked the best terminal node
+*that happened to be in the tree* and only fell back to
+`best_rollout_state` when there was none. A longer search grows the tree
+until some (usually poor) terminal appears and then returns *it* instead
+of the better rollout -- more time, worse state. Now returns the better
+of the two, so a call's result is the best over a deterministic iteration
+sequence and more iterations / time / seeds cannot return a worse state
+for the same (seed, state). After the fix (job 4819): dj_16 `-t 5` 729
+(was 1215), `-s 5` 648, `-s 8` 648; the `-t 2` baseline moved 648 -> 729
+-- per-layer "better" is not always globally better (greedy across
+layers), which is what the next item is for.
+
+### Fix 2 -- `--backtrack 1` (default 0): retry a failed layer from the
+other seeds' previous-layer states before the ceiling / gate-by-gate ladder
+
+`driver.py`: every seed's result of layer i-1 is kept (sorted by volume);
+if layer i's MCTS tier fails from the chosen one, the alternatives are
+tried in order (`_mcts_tier_from`, the same two seed passes), and only if
+all fail does the existing ladder run. More seeds -> more alternatives,
+never fewer. Default path is byte-identical. Measured (jobs 4820/4821):
+
+| | without | with `--backtrack 1` |
+|---|---|---|
+| ghz_16 s2 t2 | 972, 67 s (gate-by-gate, 15 layers) | **243, 14 s** (alternative layer-1 state worked) |
+| dj_16 s2 t2 | 729, 16 s | 729, 30 s (3 alternatives all fail; +14 s, then the old ladder) |
+| dj_16 s5 t2 | 648 | 648, 24 s (alternative worked) |
+| dj_16 s8 t2 | 648 | **567**, 25 s |
+| ghz_16 s8 t5 | 243, 20 s | 243, 21 s |
+
+Cost model: (#failing layers) x (#alternatives tried) x ~2·t seconds,
+only when a layer fails; a successful backtrack *saves* the far more
+expensive gate-by-gate. A cap on alternatives is the obvious knob if the
+s=2 overhead matters.
+
+ghz_16 is solved by budget alone as well: `-s 8 -t 5` -> **243 in 20 s**
+(vs 972 in 60-68 s at `-s 2 -t 2`, whose time is spent in the fallback).
+
+### Per-benchmark budget sweep -- parallel attempt abandoned, sequential run kept
+
+A first attempt launched all configs as 144 parallel array tasks (jobs
+4823/4865). Abandoned: the 2 s wall clock is load-sensitive, and with the
+node saturated dj_16's *baseline* came out 1620 instead of 648-729 -- the
+numbers were not comparable to anything. (Its per-task qasm copies,
+`benchmark/<b>__s..t..i...qasm`, were cleaned up.) Redone **one compile at
+a time on 16 cores** (jobs 4889, then 4894 for backtrack at higher seed
+counts): bv/dj/ghz/vqe/wstate/qaoa x {s 2/4/8} x {t 2/5} x {backtrack}.
+grover/qft/qpe were not swept (hours each) and keep `-s 2 -t 2`.
+`docs/sweep_report.py` aggregates; rule: smallest volume among configs
+within 1.5x the baseline's wall time and with the same collar count.
+
+| bench | baseline `-s 2 -t 2` | pick | volume | wall |
+|---|---|---|---|---|
+| bv_16 | 486 / 14 s | unchanged | 486 | 14 s |
+| dj_16 | 729 / 17 s | `-s 8 -t 2 --backtrack 1` | **567** (-22%) | 25 s |
+| ghz_16 | 891 / 61 s | `-s 2 -t 2 --backtrack 1` | **243** (-73%, optimum) | 14 s |
+| vqe_16 | 3888 / 152 s | `-s 4 -t 2 --backtrack 1` | 3645 (-6%; noisy benchmark) | 214 s |
+| wstate_16 | 8262 / 159 s | `-s 8 -t 2 --backtrack 1` | 8019 (-3%) | 182 s |
+| qaoa_16 | 4941 / 261 s | `-s 4 -t 2` | **4050** (-18%) | 153 s |
+
+Written into `docs/exp.py`'s `commands_1` with the table as a comment.
+The picks were re-run once more (job 4891) and reproduced exactly; their
+pkl + interactive HTML live in `docs/result/visualization/best/`
+(`<bench>__s<s>t<t>i<i>[_bt]_interactive.html`, served at
+`http://localhost:8765/best/...`, index in `index.md` there).
+
+What the sweep says, across the six:
+
+* **Seeds are the knob that works.** When a layer's MCTS stops failing,
+  the fallback ladder is skipped and both volume and time drop (ghz
+  61 s -> 10-20 s, qaoa 261 s -> 153 s). `-t` alone rarely helps
+  (dj `-t 5` = same 729 at 2x time; ghz `-t 5` = 972). `-i` never binds:
+  the 2 s wall clock cuts every layer long before 1000 iterations, so
+  `-i 2000` is identical to `-i 1000` everywhere it was tried.
+* **Seeds are not monotone by themselves** (dj `-s 4` -> 1458/1620,
+  qaoa `-s 8` -> 4941 vs `-s 4` -> 4050): more seeds can select a
+  lower-volume layer state that is a dead end for the next layer.
+* **`--backtrack 1` never made a volume worse** in 6 benchmarks x up to 4
+  seed/time settings, and turned ghz (243 at the baseline budget, 14 s),
+  dj (567) and wstate (8100/8019/7857 -- the one clean "more seeds ->
+  monotonically lower" series) around. Two limits found: (1) it retries
+  only the MCTS tier from each alternative, not the ceiling retry, so the
+  dj `-s 4` trap (which `-s 2` escapes via the ceiling retry) is still not
+  recoverable -- the alternative set is not yet a true superset; (2) its
+  cost grows with the number of alternatives (bv: 14 s -> 40/61/155 s at
+  s=4/8/8t5 for no volume gain), so it needs a cap. Both are the next
+  change.
+
+---
+
 ## 2026-09-24 — H as a WIRE property (replaces flag-on-edge + h_count); the four missing qaoa_16 collars located; two gate-by-gate seam bugs fixed
 
 All on top of `854ee28`. An intermediate attempt from earlier today (dict

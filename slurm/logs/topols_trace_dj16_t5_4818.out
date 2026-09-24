@@ -1,0 +1,36 @@
+################ dj_16 -s 2 -t 2 (run a) ################
+x_length: 9.0 y_length: 9.0 z_length: 8
+Space-time volume: 648.0
+Compilation time: 15.002535343170166
+MAIN i=1 block=0
+MAIN i=2 block=0
+MAIN i=3 block=1
+MAIN i=4 block=1
+MAIN i=4 block=1: MCTS tier returned None for every seed (ceiling_flag=0)
+MAIN i=5 block=1
+MAIN i=6 block=2
+RETURN main-loop seal at i=6 block=2 brute_last=False layer nodes=[]
+################ dj_16 -s 2 -t 5 (run a) ################
+x_length: 9.0 y_length: 9.0 z_length: 15
+Space-time volume: 1215.0
+Compilation time: 83.07231760025024
+MAIN i=1 block=0
+MAIN i=2 block=0
+MAIN i=3 block=1
+MAIN i=4 block=1
+MAIN i=4 block=1: MCTS tier returned None for every seed (ceiling_flag=0)
+MAIN i=4 block=1: ceiling-retry tier returned None too -> gate-by-gate FALLBACK
+FALLBACK block=1 at outer i=4: block_range=[5, 19] rows_=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+RETURN j-loop seal block=1 j=15 brute_last=False
+################ dj_16 -s 2 -t 5 (run b) ################
+x_length: 9.0 y_length: 9.0 z_length: 15
+Space-time volume: 1215.0
+Compilation time: 83.00793242454529
+MAIN i=1 block=0
+MAIN i=2 block=0
+MAIN i=3 block=1
+MAIN i=4 block=1
+MAIN i=4 block=1: MCTS tier returned None for every seed (ceiling_flag=0)
+MAIN i=4 block=1: ceiling-retry tier returned None too -> gate-by-gate FALLBACK
+FALLBACK block=1 at outer i=4: block_range=[5, 19] rows_=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+RETURN j-loop seal block=1 j=15 brute_last=False

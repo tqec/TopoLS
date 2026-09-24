@@ -50,13 +50,25 @@ Verification set (job 4806):
 2. **`GOLDENS`** (rule 4: intentional fix) and **commit**. Suggested
    goldens = job 4808's values; qaoa_16 needs a tolerance or a pinned
    path (4698 vs 5022 depends on whether block 9 falls back).
-3. **basic_embedding** still stacks with a `+2` T-exit slab and is used
-   whenever MCTS fails a layer; more `-s`/`-t` should keep MCTS from
-   falling back at all (user's point) -- worth a `-s 5 -t 10` comparison
-   with `TOPOLS_TAIL_DEBUG` once the suite is done.
-4. `git stash@{0}` holds the abandoned identity-list attempt; drop it once
-   this is committed. `TOPOLS_TAIL_DEBUG` hooks are env-gated and free
-   when off.
+3. **Search budget (evening, see the log's evening entry).** `-t` is the
+   2 s anytime budget (an A*-cap / `-t`-as-safety-cap detour, S-1, was
+   reverted). Two fixes: `mcts()` returns the best state seen anywhere
+   (it used to prefer any tree terminal over a better rollout, so more
+   time could give a worse state), and `--backtrack 1` retries a failed
+   layer from the other seeds' previous-layer states. Per-benchmark picks
+   from the sequential sweep (one compile at a time, 16 cores) are in
+   `docs/exp.py` `commands_1`; their 3D diagrams and pkls in
+   `docs/result/visualization/best/` (`index.md`, served at
+   `http://localhost:8765/best/...`). grover/qft/qpe were not swept.
+   **Next on backtrack:** (a) run the ceiling-retry tier per alternative
+   too -- dj `-s 4`'s trap is escaped at `-s 2` only through the ceiling
+   retry, so today's alternative set is not yet a superset; (b) cap the
+   alternatives (`--backtrack k`) -- bv pays 14 -> 61 s at s=8 for no
+   gain. Then decide whether it becomes the default, then `GOLDENS`.
+4. `basic_embedding` still stacks with a `+2` T-exit slab whenever a
+   layer falls through to it; with the picks above most fallbacks are
+   gone, so this matters less. `TOPOLS_TAIL_DEBUG` hooks are env-gated
+   and free when off. Stash is empty.
 
 ## Do not retry
 

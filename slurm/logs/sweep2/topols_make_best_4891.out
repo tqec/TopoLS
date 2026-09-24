@@ -1,0 +1,43 @@
+   4  2  1000  1 |   4050.0  -18.0% |   282 1.08 |    48/48 4
+   8  2  1000  1 |   4212.0  -14.8% |   413 1.58 |    48/48 6
+   8  5  1000  1 |   3645.0  -26.2% |   587 2.25 |    48/48 2
+  -> pick: s=4 t=2 i=1000 bt=0  vol 4941.0 -> 4050.0  wall 261s -> 153s
+
+=== summary (time factor <= 1.50) ===
+bench       baseline      pick   d_vol         wall  config
+bv_16          486.0     486.0   +0.0%      14->14s  -s 2 -t 2 -i 1000
+dj_16          729.0     567.0  -22.2%      17->25s  -s 8 -t 2 -i 1000  --backtrack 1
+ghz_16         891.0     243.0  -72.7%      61->14s  -s 2 -t 2 -i 1000  --backtrack 1
+vqe_16        3888.0    3645.0   -6.2%    152->214s  -s 4 -t 2 -i 1000  --backtrack 1
+wstate_16     8262.0    8019.0   -2.9%    159->182s  -s 8 -t 2 -i 1000  --backtrack 1
+qaoa_16       4941.0    4050.0  -18.0%    261->153s  -s 4 -t 2 -i 1000
+picks written to /home/junyuzh/QEC/upgrade/TopoLS/slurm/logs/sweep2/picks_4891.json
+################ bv_16 -> bv_16__s2t2i1000 ################
+Interactive pipe diagram written to: result/visualization/bv_16_interactive.html
+  vol=486.0 collars=21/21 wall=14s -> http://localhost:8765/best/bv_16__s2t2i1000_interactive.html
+################ dj_16 -> dj_16__s8t2i1000_bt ################
+Interactive pipe diagram written to: result/visualization/dj_16_interactive.html
+  vol=567.0 collars=31/31 wall=24s -> http://localhost:8765/best/dj_16__s8t2i1000_bt_interactive.html
+################ ghz_16 -> ghz_16__s2t2i1000_bt ################
+Interactive pipe diagram written to: result/visualization/ghz_16_interactive.html
+  vol=243.0 collars=1/1 wall=14s -> http://localhost:8765/best/ghz_16__s2t2i1000_bt_interactive.html
+################ vqe_16 -> vqe_16__s4t2i1000_bt ################
+Interactive pipe diagram written to: result/visualization/vqe_16_interactive.html
+  vol=3645.0 collars=82/82 wall=214s -> http://localhost:8765/best/vqe_16__s4t2i1000_bt_interactive.html
+################ wstate_16 -> wstate_16__s8t2i1000_bt ################
+Interactive pipe diagram written to: result/visualization/wstate_16_interactive.html
+  vol=8019.0 collars=74/74 wall=184s -> http://localhost:8765/best/wstate_16__s8t2i1000_bt_interactive.html
+################ qaoa_16 -> qaoa_16__s4t2i1000 ################
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html
+  vol=4050.0 collars=48/48 wall=152s -> http://localhost:8765/best/qaoa_16__s4t2i1000_interactive.html
+
+# Best configs (from the sequential budget sweep, 2026-09-24)
+
+| benchmark | config | volume (baseline) | collars | wall s (baseline) | 3D |
+|---|---|---|---|---|---|
+| bv_16 | `-s 2 -t 2 -i 1000` | **486.0** (486.0) | 21/21 | 14 (14) | [open](http://localhost:8765/best/bv_16__s2t2i1000_interactive.html) |
+| dj_16 | `-s 8 -t 2 -i 1000 --backtrack 1` | **567.0** (729.0) | 31/31 | 24 (17) | [open](http://localhost:8765/best/dj_16__s8t2i1000_bt_interactive.html) |
+| ghz_16 | `-s 2 -t 2 -i 1000 --backtrack 1` | **243.0** (891.0) | 1/1 | 14 (61) | [open](http://localhost:8765/best/ghz_16__s2t2i1000_bt_interactive.html) |
+| vqe_16 | `-s 4 -t 2 -i 1000 --backtrack 1` | **3645.0** (3888.0) | 82/82 | 214 (152) | [open](http://localhost:8765/best/vqe_16__s4t2i1000_bt_interactive.html) |
+| wstate_16 | `-s 8 -t 2 -i 1000 --backtrack 1` | **8019.0** (8262.0) | 74/74 | 184 (159) | [open](http://localhost:8765/best/wstate_16__s8t2i1000_bt_interactive.html) |
+| qaoa_16 | `-s 4 -t 2 -i 1000` | **4050.0** (4941.0) | 48/48 | 152 (261) | [open](http://localhost:8765/best/qaoa_16__s4t2i1000_interactive.html) |

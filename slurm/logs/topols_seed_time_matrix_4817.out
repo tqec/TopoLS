@@ -1,0 +1,22 @@
+bench      s   t   volume    collars   wall_s  note
+bv_16      2   2   486.0     21/21     13      baseline
+bv_16      2   2   486.0     21/21     14      repeat
+bv_16      5   2   486.0     21/21     15      seeds 2->5
+bv_16      8   2   486.0     21/21     15      seeds 2->8
+bv_16      2   5   486.0     21/21     32      time 2->5
+bv_16      5   5   486.0     21/21     33      both
+
+dj_16      2   2   648.0     31/31     15      baseline
+dj_16      2   2   648.0     31/31     15      repeat
+dj_16      5   2   648.0     31/31     12      seeds 2->5
+dj_16      8   2   567.0     31/31     13      seeds 2->8
+dj_16      2   5   1215.0    31/31     84      time 2->5
+dj_16      5   5   648.0     31/31     21      both
+
+ghz_16     2   2   972.0     1/1       68      baseline
+ghz_16     2   2   972.0     1/1       68      repeat
+ghz_16     5   2   972.0     1/1       71      seeds 2->5
+ghz_16     8   2   324.0     1/1       10      seeds 2->8
+ghz_16     2   5   972.0     1/1       108     time 2->5
+ghz_16     5   5   405.0     1/1       31      both
+
