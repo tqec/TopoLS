@@ -1,5 +1,0 @@
-bench    iters  volume   collars    wall_s    fallbacks note
-bv_16    150    486.0    21/21      88        0
-0       
-dj_16    150    648.0    31/31      75        0
-0       

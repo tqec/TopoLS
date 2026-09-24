@@ -114,14 +114,6 @@ def rollout(state, max_steps=2000, obj=None, layer=None, block_switch=False, cei
 # ---------------------------------------------------------------------------
 
 def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, block_switch=False, ceiling_switch=False, layer=None, length=None):
-    # Anytime search: `time_limit` (driver's -t) is the wall-clock budget and
-    # `iters` the hard cap. Given (seed, state) the iteration sequence is
-    # deterministic -- moves()/rollout() draw only from the seeded RNG and
-    # A* is bounded by a deterministic expansion cap (routing/astar.py,
-    # 2026-09-24) -- and the function returns the best rollout seen, so a
-    # longer budget can only extend the same sequence and never returns a
-    # worse state for that call. Only how many iterations fit in the budget
-    # varies with machine load.
     root = MCTSNode(root_state, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
     end_time = time.time() + (time_limit if time_limit else 1e9)
 

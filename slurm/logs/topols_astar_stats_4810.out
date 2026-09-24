@@ -1,6 +1,0 @@
-=== bv_16: 1 A* calls ===
-  zmax  ok        n=      1  expansions: median=     1 p99=     1 max=     1   seconds: median=0.0001 p99=0.0001 max=0.0001
-=== dj_16: 1 A* calls ===
-  zmax  ok        n=      1  expansions: median=     1 p99=     1 max=     1   seconds: median=0.0001 p99=0.0001 max=0.0001
-=== qaoa_16: 1 A* calls ===
-  zmax  ok        n=      1  expansions: median=     1 p99=     1 max=     1   seconds: median=0.0001 p99=0.0001 max=0.0001

@@ -1,31 +1,4 @@
 import heapq
-import os
-
-_ASTAR_STATS = os.environ.get("TOPOLS_ASTAR_STATS")
-
-# Deterministic search budget (2026-09-24). The three A* variants used to
-# abort on a wall-clock `timeout` (0.1 s / 0.1 s / 1 ms), which made a
-# route's success depend on machine load and, through that, made the same
-# (seed, state) compile to different results -- so "more seeds / more time
-# never gives a worse volume" could not hold. Calibrated on bv_16, dj_16 and
-# qaoa_16 (2.5M calls, job 4812): a successful route never needed more than
-# 303 expansions (p99 < 120) and an exhausted search at most 588, while
-# every wall-clock timeout fired at ~16k-22k expansions (0.1 s ~ 16-19k on
-# this machine). The cap below is therefore >16x any real route and still
-# ends a hopeless search 3-4x sooner than the timeout did. `timeout` is
-# kept in the signatures for API compatibility but no longer consulted.
-MAX_EXPANSIONS = 5000        # shortest_path_with_zmax / shortest_path (was 0.1 s wall clock)
-MAX_EXPANSIONS_BASE = 500    # shortest_path_base (was 1 ms wall clock ~ 165 expansions)
-
-
-def _astar_stat(variant, outcome, count, t0):
-    """Env-gated (TOPOLS_ASTAR_STATS=<path>): one line per A* call --
-    variant, how it ended (ok / timeout / cap / exhausted), expansions,
-    seconds. Used once to calibrate the expansion cap that replaces the
-    wall-clock timeout; free when the variable is unset."""
-    with open(_ASTAR_STATS, "a") as fh:
-        fh.write(f"{variant}\t{outcome}\t{count}\t{time.time() - t0:.6f}\n")
-
 import time
 
 # ---------------------------------------------------------------------------
@@ -79,8 +52,7 @@ def shortest_path_with_zmax(
 
     while open_q:
         # Abort if search exceeds time budget
-        if count > MAX_EXPANSIONS:
-            if _ASTAR_STATS: _astar_stat('zmax', 'timeout', count, start_time)
+        if time.time() - start_time > timeout:
             return None
 
         # Expand node with lowest estimated total cost
@@ -105,7 +77,6 @@ def shortest_path_with_zmax(
                 path.append(cur)
                 cur = back[cur]
             path.reverse()
-            if _ASTAR_STATS: _astar_stat('zmax', 'ok', count, start_time)
             return path
 
         # Explore neighboring grid nodes
@@ -144,8 +115,9 @@ def shortest_path_with_zmax(
 
         # Safety cap to prevent pathological exploration
         count = count + 1
+        if count > 100000:
+            return None
 
-    if _ASTAR_STATS: _astar_stat('zmax', 'exhausted', count, start_time)
     return None
 
 def shortest_path(
@@ -195,8 +167,7 @@ def shortest_path(
 
     while open_q:
         # Enforce time budget
-        if count > MAX_EXPANSIONS:
-            if _ASTAR_STATS: _astar_stat('plain', 'timeout', count, start_time)
+        if time.time() - start_time > timeout:
             return None
 
         # Expand node with lowest estimated cost
@@ -216,7 +187,6 @@ def shortest_path(
                 path.append(cur)
                 cur = back[cur]
             path.reverse()
-            if _ASTAR_STATS: _astar_stat('plain', 'ok', count, start_time)
             return path
 
         for d in directions:
@@ -254,8 +224,9 @@ def shortest_path(
 
         # Hard cap to avoid excessive exploration
         count = count + 1
+        if count > 100000:
+            return None
 
-    if _ASTAR_STATS: _astar_stat('plain', 'exhausted', count, start_time)
     return None
 
 directions_ = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0)]
@@ -293,8 +264,7 @@ def shortest_path_base(
 
     while open_q:
         # Abort search if time budget is exceeded
-        if count > MAX_EXPANSIONS_BASE:
-            if _ASTAR_STATS: _astar_stat('base', 'timeout', count, start_time)
+        if time.time() - start_time > timeout:
             return None
 
         # Expand node with lowest estimated cost
@@ -314,7 +284,6 @@ def shortest_path_base(
                 path.append(cur)
                 cur = back[cur]
             path.reverse()
-            if _ASTAR_STATS: _astar_stat('base', 'ok', count, start_time)
             return path
 
         # Explore neighbors on the same z-layer
@@ -339,6 +308,7 @@ def shortest_path_base(
 
         # Safety cap to prevent excessive exploration
         count = count + 1
+        if count > 10000:
+            return None
 
-    if _ASTAR_STATS: _astar_stat('base', 'exhausted', count, start_time)
     return None
