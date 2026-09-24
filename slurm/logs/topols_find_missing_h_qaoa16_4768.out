@@ -1,0 +1,13 @@
+benchmark=qaoa_16 pkl=qaoa_16_count
+expected H = 48   rendered collars = 44   identities with a collar on their wire = 42
+NOTE: 2 wire(s) render a collar but carry no known H flag:
+   ['284_9', '284_9_old', '283_9', '282_9', '571_old', '570', '569', '569_old', '568', '568_old', '567', '566', '566_old', '347_6', '347_6_old', '346_6', '345_6', '344_6', '343_6', '157_6']  collars=1
+   ['84_3', '309_3', '308_3', '73_2']  collars=1
+
+================ MISSING: 6 ================
+
+#1  H identity ((2, 21),)  (qubit 2, row 21)
+    ZX nodes (outer graph, before idling): 61 -- 84
+    NO embedded wire carries this H.  endpoint realisations: {61: ['61_2'], 84: ['84_3', '84_3_t']}
+            61_2  pos=(4, 3, 10)  type=0 (Z-spider)  ori=j  tqec=XZX  <- gate-by-gate block 2
+            84_3  pos=(4, 2, 19)  type=5 (T)  ori=i  tqec=ZXX  <- gate-by-gate block 3

@@ -126,6 +126,10 @@ if zx_opt == 1 and spread_num == 0:
 # zx_optimization, so we dissolve whatever H's zx_optimization left
 # behind) and record which edges carried them; downstream routing flips
 # curr_type right before any ORI_MAP lookup for a flagged edge instead.
+# Wire-property H model (embedding/hadamard.py): read every H's (qubit, row)
+# off the graph while the H-boxes are still present, then dissolve them.
+from topols.embedding.hadamard import HTable
+h_table = HTable.from_graph(graph)
 hadamard_edges = dissolve_hadamard_boxes(graph)
 
 # ============================================================
@@ -154,6 +158,10 @@ layer_labels = idling_nodes_insertion(graph, layer_labels, hadamard_edges)
 # its chance to move flags off the wires into the output ports; give a cube
 # back to whatever flag is still stranded there (see the function's docstring).
 rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges)
+# Now that idles and restored boxes exist, register every vertex's
+# (qubit, row) under the id the embedding will use.
+h_table.register_graph(graph)
+print(h_table.stats())
 
 # Extract input/output nodes for later analysis or visualization
 io_info = extract_io_nodes(graph)
@@ -163,7 +171,7 @@ io_info = extract_io_nodes(graph)
 # ============================================================
 
 time0 = time.time()
-best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num, hadamard_edges=hadamard_edges, io_info=io_info)
+best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num, hadamard_edges=h_table, io_info=io_info)
 time1 = time.time()
 x_length, y_length, z_length, volume = calculate_space_time(pos_hist, path_hist, best_state.x_min_floor, best_state.x_max_floor, best_state.y_min_floor, best_state.y_max_floor)
 space = x_length * y_length

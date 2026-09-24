@@ -109,7 +109,9 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], 0))
                 else:
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], best_state.embed_node_type[start_node]))
-                if h_count % 2 == 1:
+                # wire-property model, final seal: this chain runs from its
+                # origin to the output port, so it owns every H after the origin.
+                if best_state.hadamard_edges.needs_flip_to_end(start_node):
                     curr_type = 1 - curr_type
                 ori = ori_map[(last_dir, curr_type, 0)]
                 best_state.embed_node_ori[key] = ori
@@ -152,4 +154,34 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
             idle_place[key] = coord
     best_state.idle_place = idle_place
 
+    return best_state
+
+
+def seal_brute_frontier(best_state):
+    """Final seal for a frontier produced by basic_embedding.
+
+    basic_embedding places every real node of the layer as `X_old` and
+    leaves an idle stub `X` (type 2) directly above it at the ceiling, with
+    `idle_h_track[X] = [X_old, path, ...]`; H boxes it keeps are type-3
+    stubs on such a chain. ceiling(final=True) cannot be used on that
+    state: it renames every layer key to `X_old`, which would overwrite the
+    real node's entry, and reward() cannot build its ceiling_track because
+    the stubs carry no orientation. The stubs are already at the top, so
+    the seal is only the colour step of ceiling(final=True)'s idle branch:
+    trace the chain from its origin, flip if the wire from the origin to
+    the output port carries an odd number of H (wire-property model), set
+    type 0. Mutates and returns best_state.
+    """
+    ori_map = ORI_MAP
+    for key, (start_node, cur_path, _h) in list(best_state.idle_h_track.items()):
+        if best_state.embed_node_type.get(key) not in (2, 3):
+            continue
+        if start_node not in best_state.embed_node_ori:
+            continue
+        st = 0 if best_state.embed_node_type.get(start_node) in (4, 5) else best_state.embed_node_type.get(start_node, 0)
+        curr_type, last_dir = edge_tracer(tuple(cur_path)[::-1], (best_state.embed_node_ori[start_node], st))
+        if best_state.hadamard_edges.needs_flip_to_end(start_node):
+            curr_type = 1 - curr_type
+        best_state.embed_node_ori[key] = ori_map[(last_dir, curr_type, 0)]
+        best_state.embed_node_type[key] = 0
     return best_state

@@ -1,0 +1,224 @@
+################ qaoa_16 (-b 20) ################
+=== qaoa_16 ===
+
+outer (zx_optimization ran)
+  H_BOX chains total : 48  (lengths: {1: 48})
+  odd chains (= flags): 48
+
+fallback (no zx_optimization)
+  H_BOX chains total : 48  (lengths: {1: 48})
+  odd chains (= flags): 48
+
+=== identity agreement between the two namespaces ===
+  distinct odd-chain identities, outer   : 48
+  distinct odd-chain identities, fallback: 48
+  identities in BOTH                     : 48
+  only in outer                          : 0
+  only in fallback                       : 0
+  identities NOT unique within outer     : 0
+  identities NOT unique within fallback  : 0
+
+=== verdict ===
+(qubit, row) chain identity is USABLE: bijective across both
+namespaces and unique within each -- the Bug 8 fix can key on it.
+
+=== odd chains and the edge each flags (outer graph) ===
+  id=((0, 1),)  hbox=[256]  flags_edge=[0, 33]
+  id=((0, 18),)  hbox=[272]  flags_edge=[57, 82]
+  id=((0, 21),)  hbox=[274]  flags_edge=[83, 240]
+  id=((1, 1),)  hbox=[257]  flags_edge=[1, 44]
+  id=((1, 25),)  hbox=[276]  flags_edge=[76, 107]
+  id=((1, 28),)  hbox=[277]  flags_edge=[108, 241]
+  id=((2, 1),)  hbox=[258]  flags_edge=[2, 35]
+  id=((2, 21),)  hbox=[273]  flags_edge=[61, 84]
+  id=((2, 25),)  hbox=[275]  flags_edge=[85, 242]
+  id=((3, 1),)  hbox=[259]  flags_edge=[3, 58]
+  id=((3, 31),)  hbox=[278]  flags_edge=[102, 130]
+  id=((3, 34),)  hbox=[280]  flags_edge=[131, 243]
+  id=((4, 1),)  hbox=[260]  flags_edge=[4, 78]
+  id=((4, 39),)  hbox=[282]  flags_edge=[124, 156]
+  id=((4, 42),)  hbox=[284]  flags_edge=[157, 244]
+  id=((5, 1),)  hbox=[261]  flags_edge=[5, 32]
+  id=((5, 40),)  hbox=[283]  flags_edge=[126, 158]
+  id=((5, 43),)  hbox=[285]  flags_edge=[159, 245]
+  id=((6, 1),)  hbox=[262]  flags_edge=[6, 60]
+  id=((6, 35),)  hbox=[279]  flags_edge=[106, 132]
+  id=((6, 40),)  hbox=[281]  flags_edge=[133, 246]
+  id=((7, 1),)  hbox=[263]  flags_edge=[7, 123]
+  id=((7, 55),)  hbox=[290]  flags_edge=[175, 206]
+  id=((7, 58),)  hbox=[294]  flags_edge=[207, 247]
+  id=((8, 1),)  hbox=[264]  flags_edge=[8, 103]
+  id=((8, 50),)  hbox=[286]  flags_edge=[153, 182]
+  id=((8, 55),)  hbox=[288]  flags_edge=[183, 248]
+  id=((9, 1),)  hbox=[265]  flags_edge=[9, 128]
+  id=((9, 56),)  hbox=[292]  flags_edge=[178, 208]
+  id=((9, 59),)  hbox=[295]  flags_edge=[209, 249]
+  id=((10, 1),)  hbox=[266]  flags_edge=[10, 150]
+  id=((10, 62),)  hbox=[298]  flags_edge=[203, 225]
+  id=((10, 65),)  hbox=[299]  flags_edge=[226, 250]
+  id=((11, 1),)  hbox=[267]  flags_edge=[11, 75]
+  id=((11, 67),)  hbox=[301]  flags_edge=[224, 234]
+  id=((11, 70),)  hbox=[302]  flags_edge=[235, 251]
+  id=((12, 1),)  hbox=[268]  flags_edge=[12, 46]
+  id=((12, 58),)  hbox=[293]  flags_edge=[197, 210]
+  id=((12, 62),)  hbox=[296]  flags_edge=[211, 252]
+  id=((13, 1),)  hbox=[269]  flags_edge=[13, 56]
+  id=((13, 58),)  hbox=[291]  flags_edge=[195, 212]
+  id=((13, 62),)  hbox=[297]  flags_edge=[213, 253]
+  id=((14, 1),)  hbox=[270]  flags_edge=[14, 34]
+  id=((14, 49),)  hbox=[287]  flags_edge=[172, 190]
+  id=((14, 52),)  hbox=[289]  flags_edge=[191, 254]
+  id=((15, 1),)  hbox=[271]  flags_edge=[15, 125]
+  id=((15, 67),)  hbox=[300]  flags_edge=[230, 236]
+  id=((15, 70),)  hbox=[303]  flags_edge=[237, 255]
+
+################ bv_16 (-b 20) ################
+=== bv_16 ===
+
+outer (zx_optimization ran)
+  H_BOX chains total : 21  (lengths: {1: 21})
+  odd chains (= flags): 21
+
+fallback (no zx_optimization)
+  H_BOX chains total : 21  (lengths: {1: 21})
+  odd chains (= flags): 21
+
+=== identity agreement between the two namespaces ===
+  distinct odd-chain identities, outer   : 21
+  distinct odd-chain identities, fallback: 21
+  identities in BOTH                     : 21
+  only in outer                          : 0
+  only in fallback                       : 0
+  identities NOT unique within outer     : 0
+  identities NOT unique within fallback  : 0
+
+=== verdict ===
+(qubit, row) chain identity is USABLE: bijective across both
+namespaces and unique within each -- the Bug 8 fix can key on it.
+
+=== odd chains and the edge each flags (outer graph) ===
+  id=((0, 1),)  hbox=[73]  flags_edge=[0, 28]
+  id=((0, 3),)  hbox=[84]  flags_edge=[28, 57]
+  id=((3, 1),)  hbox=[74]  flags_edge=[3, 31]
+  id=((3, 4),)  hbox=[85]  flags_edge=[31, 60]
+  id=((6, 1),)  hbox=[75]  flags_edge=[6, 34]
+  id=((6, 5),)  hbox=[86]  flags_edge=[34, 63]
+  id=((7, 1),)  hbox=[76]  flags_edge=[7, 37]
+  id=((7, 6),)  hbox=[87]  flags_edge=[37, 64]
+  id=((8, 1),)  hbox=[77]  flags_edge=[8, 40]
+  id=((8, 7),)  hbox=[88]  flags_edge=[40, 65]
+  id=((9, 1),)  hbox=[78]  flags_edge=[9, 43]
+  id=((9, 8),)  hbox=[89]  flags_edge=[43, 66]
+  id=((10, 1),)  hbox=[79]  flags_edge=[10, 46]
+  id=((10, 9),)  hbox=[90]  flags_edge=[46, 67]
+  id=((11, 1),)  hbox=[80]  flags_edge=[11, 49]
+  id=((11, 10),)  hbox=[91]  flags_edge=[49, 68]
+  id=((13, 1),)  hbox=[81]  flags_edge=[13, 52]
+  id=((13, 11),)  hbox=[92]  flags_edge=[52, 70]
+  id=((14, 1),)  hbox=[82]  flags_edge=[14, 55]
+  id=((14, 12),)  hbox=[93]  flags_edge=[55, 71]
+  id=((15, 1),)  hbox=[83]  flags_edge=[15, 27]
+
+################ dj_16 (-b 20) ################
+=== dj_16 ===
+
+outer (zx_optimization ran)
+  H_BOX chains total : 31  (lengths: {1: 31})
+  odd chains (= flags): 31
+
+fallback (no zx_optimization)
+  H_BOX chains total : 31  (lengths: {1: 31})
+  odd chains (= flags): 31
+
+=== identity agreement between the two namespaces ===
+  distinct odd-chain identities, outer   : 31
+  distinct odd-chain identities, fallback: 31
+  identities in BOTH                     : 31
+  only in outer                          : 0
+  only in fallback                       : 0
+  identities NOT unique within outer     : 0
+  identities NOT unique within fallback  : 0
+
+=== verdict ===
+(qubit, row) chain identity is USABLE: bijective across both
+namespaces and unique within each -- the Bug 8 fix can key on it.
+
+=== odd chains and the edge each flags (outer graph) ===
+  id=((0, 3),)  hbox=[113]  flags_edge=[17, 37]
+  id=((0, 5),)  hbox=[115]  flags_edge=[37, 83]
+  id=((1, 3),)  hbox=[114]  flags_edge=[19, 39]
+  id=((1, 6),)  hbox=[116]  flags_edge=[39, 84]
+  id=((2, 1),)  hbox=[99]  flags_edge=[2, 43]
+  id=((2, 7),)  hbox=[117]  flags_edge=[43, 85]
+  id=((3, 1),)  hbox=[100]  flags_edge=[3, 46]
+  id=((3, 8),)  hbox=[118]  flags_edge=[46, 50]
+  id=((4, 1),)  hbox=[101]  flags_edge=[4, 49]
+  id=((4, 9),)  hbox=[119]  flags_edge=[49, 87]
+  id=((5, 1),)  hbox=[102]  flags_edge=[5, 54]
+  id=((5, 10),)  hbox=[120]  flags_edge=[54, 88]
+  id=((6, 1),)  hbox=[103]  flags_edge=[6, 56]
+  id=((6, 11),)  hbox=[121]  flags_edge=[56, 89]
+  id=((7, 1),)  hbox=[104]  flags_edge=[7, 59]
+  id=((7, 12),)  hbox=[122]  flags_edge=[59, 90]
+  id=((8, 1),)  hbox=[105]  flags_edge=[8, 63]
+  id=((8, 13),)  hbox=[123]  flags_edge=[63, 91]
+  id=((9, 1),)  hbox=[106]  flags_edge=[9, 65]
+  id=((9, 14),)  hbox=[124]  flags_edge=[65, 92]
+  id=((10, 1),)  hbox=[107]  flags_edge=[10, 68]
+  id=((10, 15),)  hbox=[125]  flags_edge=[68, 93]
+  id=((11, 1),)  hbox=[108]  flags_edge=[11, 72]
+  id=((11, 16),)  hbox=[126]  flags_edge=[72, 94]
+  id=((12, 1),)  hbox=[109]  flags_edge=[12, 75]
+  id=((12, 17),)  hbox=[127]  flags_edge=[75, 95]
+  id=((13, 1),)  hbox=[110]  flags_edge=[13, 77]
+  id=((13, 18),)  hbox=[128]  flags_edge=[77, 96]
+  id=((14, 1),)  hbox=[111]  flags_edge=[14, 81]
+  id=((14, 19),)  hbox=[129]  flags_edge=[81, 97]
+  id=((15, 1),)  hbox=[112]  flags_edge=[15, 36]
+
+################ cnot_s_cnot_h_2 (-b 10) ################
+=== cnot_s_cnot_h_2 ===
+
+outer (zx_optimization ran)
+  H_BOX chains total : 20  (lengths: {1: 20})
+  odd chains (= flags): 20
+
+fallback (no zx_optimization)
+  H_BOX chains total : 20  (lengths: {1: 20})
+  odd chains (= flags): 20
+
+=== identity agreement between the two namespaces ===
+  distinct odd-chain identities, outer   : 20
+  distinct odd-chain identities, fallback: 20
+  identities in BOTH                     : 20
+  only in outer                          : 0
+  only in fallback                       : 0
+  identities NOT unique within outer     : 0
+  identities NOT unique within fallback  : 0
+
+=== verdict ===
+(qubit, row) chain identity is USABLE: bijective across both
+namespaces and unique within each -- the Bug 8 fix can key on it.
+
+=== odd chains and the edge each flags (outer graph) ===
+  id=((1, 4),)  hbox=[124]  flags_edge=[5, 8]
+  id=((1, 8),)  hbox=[125]  flags_edge=[11, 14]
+  id=((1, 12),)  hbox=[126]  flags_edge=[17, 20]
+  id=((1, 16),)  hbox=[127]  flags_edge=[23, 26]
+  id=((1, 20),)  hbox=[128]  flags_edge=[29, 32]
+  id=((1, 24),)  hbox=[129]  flags_edge=[35, 38]
+  id=((1, 28),)  hbox=[130]  flags_edge=[41, 44]
+  id=((1, 32),)  hbox=[131]  flags_edge=[47, 50]
+  id=((1, 36),)  hbox=[132]  flags_edge=[53, 56]
+  id=((1, 40),)  hbox=[133]  flags_edge=[59, 62]
+  id=((1, 44),)  hbox=[134]  flags_edge=[65, 68]
+  id=((1, 48),)  hbox=[135]  flags_edge=[71, 74]
+  id=((1, 52),)  hbox=[136]  flags_edge=[77, 80]
+  id=((1, 56),)  hbox=[137]  flags_edge=[83, 86]
+  id=((1, 60),)  hbox=[138]  flags_edge=[89, 92]
+  id=((1, 64),)  hbox=[139]  flags_edge=[95, 98]
+  id=((1, 68),)  hbox=[140]  flags_edge=[101, 104]
+  id=((1, 72),)  hbox=[141]  flags_edge=[107, 110]
+  id=((1, 76),)  hbox=[142]  flags_edge=[113, 116]
+  id=((1, 80),)  hbox=[143]  flags_edge=[119, 123]
+

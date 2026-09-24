@@ -63,30 +63,22 @@ def _base_id(x):
 
 
 def _hadamard_flip(hadamard_edges, curr_type, node_a, node_b):
-    if frozenset((node_a, node_b)) in hadamard_edges:
+    """Direct edge between two REAL nodes: flip iff the circuit wire between
+    them carries an odd number of H gates. `hadamard_edges` is an
+    embedding.hadamard.HTable (name kept so the 15 call sites and the
+    EmbeddingState slot did not have to change)."""
+    if hadamard_edges.needs_flip(node_a, node_b):
         if _H_DEBUG_PATH:
             _h_debug("flip", node_a, node_b)
         return 1 - curr_type
-    if _H_DEBUG_PATH:
-        # Near-miss probe (diagnostic only, never changes behaviour): would
-        # this edge have matched if the `_{block}` / `_old` decorations were
-        # stripped off both ends? A hit here means a flip is being lost purely
-        # to id decoration, which is what to look at first when a collar is
-        # missing on a node whose id carries a suffix.
-        ba, bb = _base_id(node_a), _base_id(node_b)
-        if ba is not None and bb is not None and ba != bb:
-            for edge in hadamard_edges:
-                if {_base_id(x) for x in edge} == {ba, bb}:
-                    _h_debug("near_miss_suffix", node_a, node_b)
-                    break
     return curr_type
 
 
 def _hadamard_step(hadamard_edges, h_count, node_a, node_b):
-    if frozenset((node_a, node_b)) in hadamard_edges:
-        if _H_DEBUG_PATH:
-            _h_debug("step", node_a, node_b)
-        return h_count + 1
+    """Kept for the idle_h_track bookkeeping shape only. Under the
+    wire-property model nothing is counted along a chain -- the flip is
+    decided once, at chain close, by HTable.needs_flip(start_node, closer)
+    -- so this is deliberately the identity."""
     return h_count
 
 
@@ -143,7 +135,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], 0))
                 else:
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], typ[start_node]))
-                if h_count % 2 == 1:
+                if hadamard_edges.needs_flip(start_node, node):
                     curr_type = 1 - curr_type
                 ori[node] = ORI_MAP[(last_dir, curr_type, target_type)]
                 del track[input]
@@ -175,7 +167,7 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], 0))
                 else:
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], typ[start_node]))
-                if h_count % 2 == 1:
+                if hadamard_edges.needs_flip(start_node, node):
                     curr_type = 1 - curr_type
                 del track[input]
             elif typ[input] in (4, 5):
@@ -287,9 +279,10 @@ def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     else:
         curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], typ[start_node]))
 
-    if h_count % 2 == 1:
+    # chain (origin start_node) closes onto real dst_node: one question,
+    # no per-edge flip on the closing idle->real hop.
+    if hadamard_edges.needs_flip(start_node, dst_node):
         curr_type = 1 - curr_type
-    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori_output != ORI_MAP[(last_dir, curr_type, typ_output)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -335,9 +328,8 @@ def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_n
     else:
         curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node], typ[start_node]))
 
-    if h_count % 2 == 1:
+    if hadamard_edges.needs_flip(src_node, start_node):
         curr_type = 1 - curr_type
-    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori[src_node] != ORI_MAP[(last_dir, curr_type, target_type)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -381,9 +373,8 @@ def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node,
     else:
         curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (ori[start_node_dst], typ[start_node_dst]))
 
-    if h_count % 2 == 1:
+    if hadamard_edges.needs_flip(start_node_src, start_node_dst):
         curr_type = 1 - curr_type
-    curr_type = _hadamard_flip(hadamard_edges, curr_type, src_node, dst_node)
 
     if ori[start_node_src] != ORI_MAP[(last_dir, curr_type, 1 if typ[start_node_src] == 1 else 0)]:
         path_new = color_switch(tuple(path), occ_tmp, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
@@ -525,9 +516,10 @@ class EmbeddingState:
         # z-extent introduced by previous embedding layers
         self.z_length = z_length
 
-        # Set of frozenset((u, v)) edges that carried a dissolved H-box
-        # (see zx_transform.simplify.dissolve_hadamard_boxes) -- routing
-        # flips curr_type right before any ORI_MAP lookup for such an edge.
+        # embedding.hadamard.HTable: answers "odd number of H gates on the
+        # circuit wire between these two real nodes?" -- the single flip
+        # decision for both direct edges and closed idle chains. Slot name
+        # kept from the earlier flagged-edge-set model.
         self.hadamard_edges = hadamard_edges
 
         # Index of the next node to embed

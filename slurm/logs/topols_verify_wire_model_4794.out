@@ -1,0 +1,84 @@
+HEAD: 854ee28
+ M docs/prog.py
+ M src/topols/driver.py
+ M src/topols/embedding/fallback.py
+ M src/topols/embedding/ports.py
+ M src/topols/embedding/state.py
+ M src/topols/export/visualize_interactive.py
+?? src/topols/embedding/hadamard.py
+
+################ bv_16 (-b 20 -r 1) ################
+Executing bv_16 benchmark.
+HTable: 21 same-qubit H, 0 cross-qubit H, 67 registered nodes
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 6
+Space-time volume: 486.0
+Time: 6
+Space: 81.0
+Compilation time: 13.255815744400024
+QASM H-gate count: 21
+H-boxes kept as cubes (on an output-port wire): 0
+Expected collars (odd-length H runs, H*H=I cancelled): 21
+Rendered yellow-collar count: 21
+SAFETY CHECK PASSED
+
+################ dj_16 (-b 20 -r 0) ################
+Executing dj_16 benchmark.
+HTable: 31 same-qubit H, 0 cross-qubit H, 119 registered nodes
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 8
+Space-time volume: 648.0
+Time: 8
+Space: 81.0
+Compilation time: 14.848942041397095
+QASM H-gate count: 31
+H-boxes kept as cubes (on an output-port wire): 0
+Expected collars (odd-length H runs, H*H=I cancelled): 31
+Rendered yellow-collar count: 31
+SAFETY CHECK PASSED
+
+################ cnot_s_cnot_h_2 (-b 10 -r 0) ################
+Executing cnot_s_cnot_h_2 benchmark.
+HTable: 20 same-qubit H, 0 cross-qubit H, 97 registered nodes
+Embedding progress:
+x_length: 5.0 y_length: 3.0 z_length: 65
+Space-time volume: 975.0
+Time: 65
+Space: 15.0
+Compilation time: 188.38841724395752
+QASM H-gate count: 20
+H-boxes kept as cubes (on an output-port wire): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 20
+Rendered yellow-collar count: 20
+SAFETY CHECK PASSED
+
+################ qaoa_16 (-b 20 -r 0) ################
+Executing qaoa_16 benchmark.
+HTable: 48 same-qubit H, 0 cross-qubit H, 574 registered nodes
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 61
+Space-time volume: 4941.0
+Time: 61
+Space: 81.0
+Compilation time: 242.42237257957458
+QASM H-gate count: 48
+H-boxes kept as cubes (on an output-port wire): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 48
+SAFETY CHECK PASSED
+
+################ qaoa_16: which H are still missing ################
+[seam wire, attributed by qubit/row] ((4, 42),) -> ['285_9', '284_9', '284_9_old', '282_9', '571_old', '570', '569', '569_old', '312_7', '312_7_old', '311_7', '310_7', '308_7', '307_7', '306_7', '305_7', '347_6', '347_6_old', '344_6', '343_6', '342_6', '157_6']  collars=1
+[seam wire, attributed by qubit/row] ((6, 35),) -> ['132_5', '328_5', '327_5', '326_5', '487', '487_old', '106']  collars=1
+[seam wire, attributed by qubit/row] ((6, 40),) -> ['280_9', '279_9', '279_9_old', '277_9', '543_old', '542', '541', '541_old', '296_7', '296_7_old', '295_7', '294_7', '292_7', '291_7', '290_7', '289_7', '314_6', '314_6_old', '313_6', '311_6', '310_6', '309_6', '308_6', '351_5', '351_5_old', '350_5', '133_5']  collars=1
+[seam wire, attributed by qubit/row] ((8, 55),) -> ['295_9', '294_9', '294_9_old', '292_9', '597_old', '596', '595', '595_old', '346_7', '346_7_old', '345_7', '344_7', '183_7']  collars=1
+[seam wire, attributed by qubit/row] ((10, 62),) -> ['226_9', '617', '617_old', '203']  collars=1
+[seam wire, attributed by qubit/row] ((11, 70),) -> ['327_9', '235_9', '235_9_old']  collars=1
+[seam wire, attributed by qubit/row] ((14, 49),) -> ['172_6', '327_7', '190_7']  collars=1
+[seam wire, attributed by qubit/row] ((15, 70),) -> ['328_9', '237_9', '237_9_old']  collars=1
+
+benchmark=qaoa_16 pkl=qaoa_16_wire
+expected H = 48   rendered collars = 48   H with a collar on their wire = 48   -> missing = 0
+
+================ MISSING: 0 ================
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html

@@ -1,0 +1,25 @@
+################ A. attribution on the wire-model pkl (expect 46 / 2 missing / 0 orphans) ################
+[seam wire, attributed by qubit/row] ((4, 42),) -> ['284_9', '284_9_old', '283_9', '282_9', '281_9', '571_old', '570', '569', '312_7', '312_7_old', '311_7', '310_7', '308_7', '307_7', '307_7_old', '306_7', '305_7', '347_6', '347_6_old', '345_6', '344_6', '343_6', '342_6', '157_6']  collars=1
+[seam wire, attributed by qubit/row] ((6, 35),) -> ['132_5', '328_5', '327_5', '326_5', '487', '487_old', '106']  collars=1
+[seam wire, attributed by qubit/row] ((8, 55),) -> ['294_9', '294_9_old', '293_9', '292_9', '291_9', '597_old', '596', '595', '346_7', '346_7_old', '345_7', '344_7', '183_7']  collars=1
+[seam wire, attributed by qubit/row] ((14, 49),) -> ['172_6', '327_7', '190_7']  collars=1
+
+benchmark=qaoa_16 pkl=qaoa_16_wire
+expected H = 48   rendered collars = 46   H with a collar on their wire = 46   -> missing = 2
+
+================ MISSING: 2 ================
+
+#1  H ((11, 70),)   qubit 11, row 70
+    ZX nodes (outer graph, before idling): 235 -- 251
+    flag after idling/remat in outer graph: edge frozenset({235, 643})
+    NO embedded wire carries this H.  endpoint realisations: {235: [], 251: []}
+    nothing to crop (not embedded)
+
+#2  H ((15, 70),)   qubit 15, row 70
+    ZX nodes (outer graph, before idling): 237 -- 255
+    flag after idling/remat in outer graph: hbox 644
+    NO embedded wire carries this H.  endpoint realisations: {237: [], 255: []}
+    nothing to crop (not embedded)
+
+################ B. why 235 / 237 (q11, q15) are never embedded ################
+distinct rows: 72  (last five: [67, 68, 69, 70, 71])

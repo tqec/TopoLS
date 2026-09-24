@@ -67,7 +67,22 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                     curr_type, last_dir = edge_tracer(cur_path[::-1], (embed_node_ori[start_node], 0))
                 else:
                     curr_type, last_dir = edge_tracer(cur_path[::-1], (embed_node_ori[start_node], embed_node_type[start_node]))
-                if h_count % 2 == 1:
+                # basic_embedding applies no H when it later stacks the real
+                # node on top of this chain, so the chain's colour handed over
+                # here must already include every H up to that next real node:
+                # walk input_connect forward through idle/H nodes to find it.
+                nxt, seen_ = key, set()
+                while nxt is not None and nxt not in seen_:
+                    seen_.add(nxt)
+                    succ = [n for n, v in input_connect.items() if v and v[0] == nxt]
+                    if not succ:
+                        nxt = None
+                        break
+                    nxt = succ[0]
+                    if node_type.get(nxt) not in (2, 3):
+                        break
+                target = nxt if (nxt is not None and node_type.get(nxt) not in (2, 3)) else key
+                if hadamard_edges.needs_flip(start_node, target):
                     curr_type = 1 - curr_type
                 if ORI_MAP[(last_dir, curr_type, 0)] == 'k':
                     red_face = ORI_MAP[(last_dir, curr_type, 1)]

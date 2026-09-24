@@ -11,6 +11,183 @@ the Python restructuring and the Rust port are done — see `CLAUDE.md` rule
 
 ---
 
+## 2026-09-24 — H as a WIRE property (replaces flag-on-edge + h_count); the four missing qaoa_16 collars located; two gate-by-gate seam bugs fixed
+
+All on top of `854ee28`. An intermediate attempt from earlier today (dict
+`hadamard_edges` carrying `(qubit,row)` identities, `idle_h_track` third
+element as an identity list, `len(set(...)) % 2` flip) is parked in
+`git stash` ("2026-09-24 WIP: H identity plumbing ...") and superseded by
+what follows -- see "what was measured" for why.
+
+### Verification run of the committed state (job 4737, then 4770)
+
+Full 9 benchmarks at `854ee28`: bv_16 486 / 21-of-21, dj_16 648 / 31-of-31,
+ghz_16 972 / 1-of-1, vqe_16 3645 / 82-of-82 (this draw; it wanders),
+wstate_16 8262 / 74-of-74, grover_6 22925 / 94-of-100, qft_16 37827 /
+315-of-328, qpe_16 38232 / 370-of-373, qaoa_16 4698 / 44-of-48. `ghz_16` =
+972 is the known budget artefact (243 at `-s 5 -t 100`, job 4681), not a
+regression. Job 4682's collar numbers are on the OLD checker (raw QASM
+count as denominator) and are not comparable.
+
+### Locating the four missing qaoa_16 collars -- new tool `docs/find_missing_h.py`
+
+Per-gate attribution that agrees with the checker exactly (44 attributed,
+4 missing on the 44/48 pkl). Works from the pkl side: every merged path
+between two coloured nodes is a WIRE; each hop is looked up in the union
+of the outer graph's and every fallback block's flagged-edge tables
+(rebuilt as driver.py builds them, suffixed the same way); wires that
+cross a fallback seam (flag on an un-rebuildable j==1 hand-off edge) are
+attributed by qubit/row bracket. Prints ZX pair, every embedded node on
+the wire with type and originating loop, edge_tracer flip replay, and a
+cropped 3D view (`visualize_interactive` gained `label_offset` /
+`label_size` / `leader_lines` so labels sit off the cubes).
+
+| # | H (qubit,row) | ZX pair | wire | why no collar |
+|---|---|---|---|---|
+| 1 | (6,35) | 106--132 | 106(main) ->486,487(main idles) ->326_5,327_5,328_5(block-5 gbg) ->132_5 (T) | `h_count=2`: main loop consumed flag (106,486) when placing 486; the j==1 hand-off then created a second flagged edge (326_5,487) for the *same* H; parity even, flip skipped |
+| 2 | (11,70) | 235--251 | -- | 235 never embedded (block-10 tail) |
+| 3 | (14,49) | 172--190 | 172_6(block-6 gbg) -> 190_old(main, T), adjacent | outer flag sat on (172,589) with 589 an idle the fallback never created; main loop routed (190,172_6), Site-A transfer checked (190,589): H **never consumed by anyone** (trace: only 97 discarded rollouts touched it) |
+| 4 | (15,70) | 237--255 | -- | 237 never embedded (block-10 tail); its rematerialized box 644 also absent |
+
+Both #1 and #3 are seam bugs of the flag-on-edge model itself: two graphs
+(outer, zx-optimised; fallback's fresh reparse) each place a flag for one
+physical H on "the first idle edge after the earlier node" in their own
+namespace, then idling moves it and the hand-off transfers it, and the
+two views land on one chain (#1) or on no routed edge at all (#3).
+
+### What was measured before redesigning (do not re-run these)
+
+* `(qubit,row)` is a sound cross-namespace H identity: bijective across
+  outer/fallback graphs and unique within each on all 9 benchmarks
+  (`docs/probe_h_identity.py`, jobs 4738/4741; identities per benchmark =
+  expected collars).
+* Carrying identities instead of a count (behaviour-neutral) and tracing
+  every chain close on qaoa_16 (job 4751, 269458 lines): 118105 closes
+  count 0, 77775 count 1, **4767 count 2 with distinct 1** -- all the same
+  chain `132_5<-328_5`, identity (6,35) twice; `count 2 / distinct 2` never
+  occurred.
+* Flipping on `len(set(...)) % 2` (job 4758): that chain renders, but
+  qaoa_16 falls 44 -> **31/48** -- the same 31 as the earlier "suppress the
+  transfer" attempt. Traced (job 4764) to collars lost at z~17-20, i.e.
+  blocks 2/3, *before* block 5: other decision sites (`_route_*` helpers,
+  which apply BOTH the chain parity and a `_hadamard_flip` on the closing
+  edge) had their own duplicates which were compensating a second
+  application. Conclusion: the flag/count model has two application paths
+  that are not mutually exclusive; patching the count is the wrong layer.
+
+### The redesign (user's): `embedding/hadamard.py`, `HTable`
+
+An H is a property of the circuit wire between two REAL nodes. Whenever
+routing connects two real nodes -- directly, or by closing an idle chain
+whose recorded `start_node` is the origin -- ask once:
+`needs_flip(A, B)` = odd number of H rows on that qubit in
+`(min(row A,row B), max]`. Nothing is flagged, moved, transferred or
+counted. `(qubit,row)` is read off the graph before dissolve
+(`HTable.from_graph`); every embedded id is registered to its `(qubit,row)`
+from whichever graph it lives in (`register_graph` for plain ids from the
+outer graph, `register_graph_labelled(graph_, labels, "_<block>")` in the
+fallback); `_old` is stripped on lookup. A kept-as-cube H_BOX is snapped to
+the H row it stands for.
+
+Touch points (parameter/slot name `hadamard_edges` kept, value is now the
+table): `state.py` -- `_hadamard_flip` asks the table; `_hadamard_step` is
+the identity; the 2 `_route_input_ports` chain closes and 3 `_route_*`
+chain helpers ask `needs_flip(start, closer)` and the helpers' extra
+`_hadamard_flip` on the closing idle->real hop is **removed** (that was the
+second application path). `ports.py` -- `ceiling(final=True)` asks
+`needs_flip_to_end(start_node)` (chain runs to the output port, it owns
+every H after the origin). `fallback.py` -- `basic_embedding`'s
+`qubit_ori` walks `input_connect` to the next real node and asks up to it
+(basic_embedding applies no H when stacking). `driver.py` -- both j==1
+flag transfers and the suffixed set rebuild deleted; fallback registers
+graph_ into the shared table. `docs/prog.py` builds/registers the table.
+
+### A second, model-independent hole found on the way: no final seal on the Bug-9 path
+
+First wire-model run (job 4772): all 32 non-port H render (both seams
+fixed) but ALL 16 output-side H vanish -- every port wire ends in a
+type-2, colourless idle at z=58: `ceiling(final=True)` never ran. The Bug 9
+recovery (`len(rows_) <= 1: best_state = pre_state`) `continue`s, the outer
+loop runs out, and `operation()` returns from its last line; the only two
+final-seal sites are in `node_output_connect == {}` branches that this
+path skips. Which path the compile ends on depends on whether the last
+block falls back, i.e. on the search -- the committed code just happened
+to exit through a sealing branch. Fixed: on that path, if `block` is the
+last block, seal and return exactly like the j-loop's final branch.
+
+### Intermediate result (job 4776): 46/48
+
+bv_16 486 / 21-21, dj_16 648 / 31-31, cnot_s_cnot_h_2 975 / 20-20 all
+unchanged; qaoa_16 4860 (z=60), **46/48** -- every H whose endpoints are
+embedded renders, including the three seam wires (6,35), (14,49), (4,42).
+Still missing: (11,70) and (15,70), whose ZX nodes 235/237 were never
+embedded. The attribution tool also reported one collared wire it could
+not match ("NOTE ... tool gap"): fixed -- `qrow()` resolved fallback-
+inserted idle ids like `294_9` against a graph without idles; it now
+uses that block's own idled `graph_`. Strict 1:1 (46 collars, 46 H, 0
+unattributed) then held.
+
+### A third, model-independent hole: brute-force layers were discarded at the seal
+
+New probe `docs/probe_tail.py` + `TOPOLS_TAIL_DEBUG` (env-gated trace of
+the fallback j-loop, the main loop's ladder and every `return` site).
+qaoa_16, job 4786:
+
+```
+FALLBACK block=9 ... rows_=[0..7]
+  j=5 block=9 nodes={235 (T), 237 (T), 14 idles}   embedded by BRUTE FORCE
+  j=6 block=9 nodes={327 (H box), 328 (H box)}      embedded by BRUTE FORCE
+  j=7 block=9 nodes={}                               RETURN j-loop seal
+```
+
+So 235/237 and the two output-side H boxes WERE embedded, by
+`basic_embedding`, and then thrown away: the brute-force branch `continue`s
+past the `reward()` / `pre_state = best_state` bookkeeping, so the seal --
+`ceiling(_fresh_copy_for_ceiling(pre_state), ...)` -- acted on the state
+from layer 4. The pkl showed exactly that: qubits 11/15 topped out at
+`234_9_old -> 234_9` / `236_9_old -> 236_9`, T nodes promoted by the seal.
+This is the "block whose embedding gets discarded" noted on 2026-09-23.
+
+Why the branch skips the bookkeeping is structural, not an oversight:
+`basic_embedding` stores every real node as `X_old` and leaves an idle stub
+`X` (type 2, `idle_h_track[X] = [X_old, path, ...]`) at the ceiling.
+`reward()` on such a state raises `KeyError` (it reads `embed_node_ori`
+for the stub, which has none -- measured, job 4788), and `ceiling()` would
+rename `X` to `X_old` over the real node. So neither can be applied.
+
+Fix: `ports.seal_brute_frontier(state)` -- the colour step of
+`ceiling(final=True)`'s idle branch only, no renaming, no lifting (the
+stubs are already at the top): trace each chain from its `X_old` origin,
+flip iff `needs_flip_to_end(origin)`, set type 0. A `brute_last` flag
+(set in the brute-force branch, cleared by the shared bookkeeping) makes
+all three seal sites (j-loop, main loop, Bug-9 last block) use it on
+`pre_brute_state` instead of `ceiling(pre_state)`. `basic_embedding`'s
+`qubit_ori` also now asks `needs_flip(start, <next real node>)` by walking
+`input_connect`, since it applies no H when it stacks the real node.
+
+### Final results (jobs 4793, 4794)
+
+| benchmark | before (854ee28) | now | |
+|---|---|---|---|
+| bv_16 | 486, 21/21 | **486, 21/21** | unchanged |
+| dj_16 | 648, 31/31 | **648, 31/31** | unchanged |
+| cnot_s_cnot_h_2 (`-b 10`) | 975, 20/20 | **975, 20/20** | unchanged |
+| qaoa_16 | 4698 (z=58), 44/48 | **48/48 PASSED**, volume 4941 (z=61) or 5265 (z=65) | +4 collars |
+
+qaoa_16 is 48/48 on both of two runs, with strict 1:1 attribution (48
+collars, 48 H, 0 unattributed). Its volume now varies with whether block
+9 falls back to gate-by-gate (job 4794: main loop, 4941) or not (job
+4793: fallback + brute force for layers 5-6, 5265) -- previously both
+paths discarded the same tail, which is why 4698 looked deterministic.
+The increase is the cost of embedding what used to be dropped plus the
+seal; the brute-force stack is visibly inefficient and is now worth
+optimising on its own.
+
+Not yet run: the other five benchmarks under the wire model. `GOLDENS`
+untouched. `docs/NEXT_SESSION.md` updated.
+
+---
+
 ## 2026-09-23 — H-gate embedding optimization (dissolve H-boxes) + 4 bugs found by a new "one collar per H" safety check
 
 User's design premise: an H gate never needs its own physical embedding

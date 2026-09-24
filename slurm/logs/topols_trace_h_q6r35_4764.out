@@ -1,0 +1,185 @@
+################ A. current code (count parity), existing pkl ################
+=== embedded realisations of base 106 ===
+       106  pos=(2, 2, 24)  type=0  ori=j  <- main MCTS loop
+=== embedded realisations of base 132 ===
+     132_5  pos=(2, 2, 31)  type=5  ori=j  <- gate-by-gate fallback, block 5
+
+=== chains from 106 to 132 through idle/H nodes: 1 ===
+
+--- chain 106 -> 132_5  (8 nodes, 8 lattice points) ---
+        106  pos=(2, 2, 24)  type=0  ori=j  <- main MCTS loop  tqec=XZX
+    486_old  pos=(2, 2, 25)  type=2  ori=None  <- ceiling()/basic_embedding rename (_old)  tqec=None
+        486  pos=(2, 2, 26)  type=2  ori=None  <- main MCTS loop  tqec=None
+    487_old  pos=(2, 2, 27)  type=2  ori=None  <- ceiling()/basic_embedding rename (_old)  tqec=None
+        487  pos=(2, 2, 28)  type=2  ori=None  <- main MCTS loop  tqec=None
+      327_5  pos=(2, 2, 29)  type=2  ori=None  <- gate-by-gate fallback, block 5  tqec=None
+      328_5  pos=(2, 2, 30)  type=2  ori=None  <- gate-by-gate fallback, block 5  tqec=None
+      132_5  pos=(2, 2, 31)  type=5  ori=j  <- gate-by-gate fallback, block 5  tqec=XZX
+   merged path (8 pts): [(2, 2, 24), (2, 2, 25), (2, 2, 26), (2, 2, 27), (2, 2, 28), (2, 2, 29), (2, 2, 30), (2, 2, 31)]
+   edge_tracer from 106: curr_type=1 last_dir=k
+   predicted ori[132_5] WITHOUT H flip : j
+   predicted ori[132_5] WITH    H flip : i
+   actual    ori[132_5]                : j
+   => the flip was NOT applied on this chain  <<<<<<<<
+   tqec[106]=XZX  tqec[132_5]=XZX
+   needs_color_transition(a, b, axis=z) = False   (last-step axis z: False)
+
+=== rendered result on the merged a->b edge(s) ===
+   collars on ANY unit edge inside this chain's geometry:
+   total collars on this chain: 0
+
+=== crop bbox: x[1,3] y[1,3] z[23,32] ===
+region: 56 nodes, 46 edges -> result/visualization/qaoa16_h_q6r35_count_interactive.html
+
+################ B. distinct parity (TOPOLS_H_DISTINCT=1), fresh compile ################
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 59
+Space-time volume: 4779.0
+Time: 59
+Space: 81.0
+Compilation time: 223.51579880714417
+QASM H-gate count: 48
+H-boxes kept as cubes (on an output-port wire): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 31
+SAFETY CHECK FAILED (diff -17)
+=== embedded realisations of base 106 ===
+       106  pos=(2, 2, 24)  type=0  ori=j  <- main MCTS loop
+=== embedded realisations of base 132 ===
+     132_5  pos=(2, 2, 31)  type=5  ori=i  <- gate-by-gate fallback, block 5
+
+=== chains from 106 to 132 through idle/H nodes: 1 ===
+
+--- chain 106 -> 132_5  (8 nodes, 8 lattice points) ---
+        106  pos=(2, 2, 24)  type=0  ori=j  <- main MCTS loop  tqec=XZX
+    486_old  pos=(2, 2, 25)  type=2  ori=None  <- ceiling()/basic_embedding rename (_old)  tqec=None
+        486  pos=(2, 2, 26)  type=2  ori=None  <- main MCTS loop  tqec=None
+    487_old  pos=(2, 2, 27)  type=2  ori=None  <- ceiling()/basic_embedding rename (_old)  tqec=None
+        487  pos=(2, 2, 28)  type=2  ori=None  <- main MCTS loop  tqec=None
+      327_5  pos=(2, 2, 29)  type=2  ori=None  <- gate-by-gate fallback, block 5  tqec=None
+      328_5  pos=(2, 2, 30)  type=2  ori=None  <- gate-by-gate fallback, block 5  tqec=None
+      132_5  pos=(2, 2, 31)  type=5  ori=i  <- gate-by-gate fallback, block 5  tqec=ZXX
+   merged path (8 pts): [(2, 2, 24), (2, 2, 25), (2, 2, 26), (2, 2, 27), (2, 2, 28), (2, 2, 29), (2, 2, 30), (2, 2, 31)]
+   edge_tracer from 106: curr_type=1 last_dir=k
+   predicted ori[132_5] WITHOUT H flip : j
+   predicted ori[132_5] WITH    H flip : i
+   actual    ori[132_5]                : i
+   => the flip WAS applied on this chain
+   tqec[106]=XZX  tqec[132_5]=ZXX
+   needs_color_transition(a, b, axis=z) = True   (last-step axis z: True)
+
+=== rendered result on the merged a->b edge(s) ===
+   collars on ANY unit edge inside this chain's geometry:
+     COLLAR path_284_6--106 at (2, 2, 25)->(2, 2, 24)
+   total collars on this chain: 1
+
+=== crop bbox: x[1,3] y[1,3] z[23,32] ===
+region: 59 nodes, 49 edges -> result/visualization/qaoa16_h_q6r35_distinct_interactive.html
+
+################ C. collar diff: count vs distinct ################
+qaoa_16_count: 44 collars
+qaoa_16_distinct: 31 collars
+
+only in qaoa_16_count: 22
+   mid=(-1.0, 6.5, 56.0)
+      path_237_1 pos=None ori=None type=None  tqec=XZZ
+      230_9 pos=(-1, 6, 56) ori=k type=1  tqec=ZZX
+   mid=(-0.5, 0.0, 41.0)
+      path_327_8 pos=None ori=None type=None  tqec=XXZ
+      171_6 pos=(-1, 0, 41) ori=j type=0  tqec=XZX
+   mid=(-0.5, 2.0, 46.0)
+      path_189_1 pos=None ori=None type=None  tqec=ZXZ
+      175 pos=(0, 2, 46) ori=j type=0  tqec=XZX
+   mid=(0.0, 0.0, 47.5)
+      path_246_10 pos=None ori=None type=None  tqec=XZZ
+      183 pos=(0, 0, 47) ori=i type=5  tqec=ZXX
+   mid=(0.0, 2.0, 52.5)
+      path_249_5 pos=None ori=None type=None  tqec=XZZ
+      207 pos=(0, 2, 52) ori=i type=0  tqec=ZXX
+   mid=(0.0, 4.0, 56.5)
+      234_9_old pos=(0, 4, 57) ori=i type=5  tqec=ZXX
+      231_9 pos=(0, 4, 56) ori=j type=0  tqec=XZX
+   mid=(2.0, 0.5, 38.0)
+      path_252_21 pos=None ori=None type=None  tqec=XZZ
+      159_6 pos=(2, 0, 38) ori=i type=5  tqec=ZXX
+   mid=(2.0, 2.0, 32.5)
+      path_254_25 pos=None ori=None type=None  tqec=ZXZ
+      133_5 pos=(2, 2, 32) ori=j type=5  tqec=XZX
+   mid=(2.0, 6.0, 47.5)
+      path_243_10 pos=None ori=None type=None  tqec=ZXZ
+      191 pos=(2, 6, 47) ori=j type=5  tqec=XZX
+   mid=(4.0, 0.0, 17.5)
+      path_247_40 pos=None ori=None type=None  tqec=ZXZ
+      83_3 pos=(4, 0, 17) ori=j type=5  tqec=XZX
+   mid=(4.0, 2.0, 20.5)
+      path_248_37 pos=None ori=None type=None  tqec=XZZ
+      85_3 pos=(4, 2, 20) ori=i type=5  tqec=ZXX
+   mid=(4.0, 4.0, 52.5)
+      path_335_3 pos=None ori=None type=None  tqec=ZXZ
+      203 pos=(4, 4, 52) ori=j type=0  tqec=XZX
+   mid=(4.0, 5.0, 46.5)
+      path_330_24 pos=None ori=None type=None  tqec=XZZ
+      197 pos=(4, 5, 47) ori=j type=1  tqec=ZXZ
+   mid=(4.0, 6.0, 46.5)
+      path_329_4 pos=None ori=None type=None  tqec=ZXZ
+      178 pos=(4, 6, 46) ori=j type=0  tqec=XZX
+   mid=(4.0, 6.0, 53.5)
+      path_256_4 pos=None ori=None type=None  tqec=XZZ
+      209 pos=(4, 6, 53) ori=i type=5  tqec=ZXX
+   mid=(4.5, 6.0, 29.0)
+      path_245_34 pos=None ori=None type=None  tqec=ZXZ
+      131_5 pos=(4, 6, 29) ori=j type=5  tqec=XZX
+   mid=(5.0, 3.5, 55.0)
+      path_255_5 pos=None ori=None type=None  tqec=ZXX
+      226_9 pos=(5, 4, 55) ori=k type=5  tqec=XXZ
+   mid=(5.5, 5.0, 47.0)
+      path_331_5 pos=None ori=None type=None  tqec=XZX
+      195 pos=(5, 5, 47) ori=j type=1  tqec=ZXZ
+   mid=(6.0, 0.0, 26.5)
+      path_253_31 pos=None ori=None type=None  tqec=ZXZ
+      108 pos=(6, 0, 26) ori=j type=0  tqec=XZX
+   mid=(6.0, 2.0, 37.5)
+      path_251_20 pos=None ori=None type=None  tqec=XZZ
+      157_6 pos=(6, 2, 37) ori=i type=5  tqec=ZXX
+   mid=(6.0, 4.0, 53.5)
+      path_244_4 pos=None ori=None type=None  tqec=ZXZ
+      213 pos=(6, 4, 53) ori=j type=5  tqec=XZX
+   mid=(6.0, 6.0, 53.5)
+      path_250_4 pos=None ori=None type=None  tqec=ZXZ
+      211 pos=(6, 6, 53) ori=j type=5  tqec=XZX
+
+only in qaoa_16_distinct: 9
+   mid=(-1.0, 5.0, 56.5)
+      236 pos=(-1, 5, 57) ori=i type=5  tqec=ZXX
+      230 pos=(-1, 5, 56) ori=i type=1  tqec=XZZ
+   mid=(0.0, 0.0, 42.5)
+      path_311_2 pos=None ori=None type=None  tqec=ZXZ
+      171_6 pos=(0, 0, 42) ori=j type=0  tqec=XZX
+   mid=(0.0, 2.0, 45.5)
+      206 pos=(0, 2, 46) ori=i type=5  tqec=ZXX
+      175 pos=(0, 2, 45) ori=j type=0  tqec=XZX
+   mid=(0.0, 4.0, 55.5)
+      234 pos=(0, 4, 56) ori=i type=5  tqec=ZXX
+      224 pos=(0, 4, 55) ori=j type=0  tqec=XZX
+   mid=(1.5, 3.0, 46.0)
+      path_315_7 pos=None ori=None type=None  tqec=XZX
+      195 pos=(1, 3, 46) ori=j type=1  tqec=ZXZ
+   mid=(2.0, 2.0, 24.5)
+      path_284_6 pos=None ori=None type=None  tqec=ZXZ
+      106 pos=(2, 2, 24) ori=j type=0  tqec=XZX
+   mid=(2.0, 4.0, 45.5)
+      path_316_4 pos=None ori=None type=None  tqec=ZXZ
+      178 pos=(2, 4, 45) ori=j type=0  tqec=XZX
+   mid=(4.0, 4.5, 46.0)
+      path_314_7 pos=None ori=None type=None  tqec=XZZ
+      197 pos=(4, 4, 46) ori=k type=1  tqec=ZZX
+   mid=(6.5, 6.0, 50.0)
+      path_319_14 pos=None ori=None type=None  tqec=ZXZ
+      203 pos=(6, 6, 50) ori=j type=0  tqec=XZX
+
+real nodes carrying a collar -- only in qaoa_16_count: [108, '131_5', '133_5', '157_6', '159_6', 183, 191, 207, 209, 211, 213, '226_9', '230_9', '231_9', '234_9_old', '83_3', '85_3']
+real nodes carrying a collar -- only in qaoa_16_distinct: [106, 206, 224, 230, 234, 236]
+
+################ D. restore the good (count) pkl as qaoa_16.pkl ################
+restored

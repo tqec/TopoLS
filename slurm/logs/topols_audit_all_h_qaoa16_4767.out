@@ -1,0 +1,80 @@
+benchmark=qaoa_16  pkl=qaoa_16_count  flagged edges=47  kept-as-cube H=1  expected=48  rendered collars=44
+     identity   edge(u,v)   wire L..R seg from      seg to        flip      collar  note
+    ((0, 1),)     (0, 33)     (0, 33) 0(main)       33(main)      YES            1  
+   ((0, 18),)    (57, 82)    (57, 82) -             -             n/a            0  walk covers [57] but not the (u,v) hop
+   ((0, 21),)   (425, 83)   (240, 83) -             -             n/a            0  walk covers [441, 440, 439, 439, 438, 438, 437, 436] but not the (u,v) hop
+    ((1, 1),)    (256, 1)     (44, 1) 44(main)      1(main)       YES            1  
+   ((1, 25),)   (418, 76)   (107, 76) -             -             n/a            0  walk covers [107] but not the (u,v) hop
+   ((1, 28),)  (488, 108)  (241, 108) -             -             n/a            0  walk covers [500, 499, 498, 498, 497, 497, 496, 495] but not the (u,v) hop
+    ((2, 1),)     (2, 35)     (2, 35) 2(main)       35(main)      YES            1  
+   ((2, 21),)   (410, 61)    (84, 61) -             -             n/a            0  walk covers [84] but not the (u,v) hop
+   ((2, 25),)   (85, 446)   (85, 242) -             -             n/a            0  walk covers [456, 456, 457, 458, 458, 459, 459, 460, 461] but not the (u,v) hop
+    ((3, 1),)    (259, 3)     (58, 3) 264_old(old)  3(main)       n/a            1   segment end is still idle (chain never closed)
+   ((3, 31),)  (130, 102)  (130, 102) 130_old(old)  102(main)     YES            1  
+   ((3, 34),)  (131, 519)  (131, 243) -             -             n/a            0  walk covers [524, 524, 525, 526, 526, 527, 527, 528, 529] but not the (u,v) hop
+    ((4, 1),)    (265, 4)     (78, 4) -             -             n/a            0  walk covers [272, 271, 270, 269, 268, 267, 265] but not the (u,v) hop
+   ((4, 39),)  (124, 156)  (124, 156) -             -             n/a            0  walk covers [124] but not the (u,v) hop
+   ((4, 42),)  (564, 157)  (244, 157) -             -             n/a            0  walk covers [571, 570, 569, 569, 568, 568, 567, 566] but not the (u,v) hop
+    ((5, 1),)     (32, 5)     (32, 5) 32(main)      5(main)       YES            1  
+   ((5, 40),)  (514, 126)  (158, 126) -             -             n/a            0  walk covers [158] but not the (u,v) hop
+   ((5, 43),)  (576, 159)  (245, 159) -             -             n/a            0  walk covers [582, 581, 580, 580, 579, 579, 577] but not the (u,v) hop
+    ((6, 1),)    (274, 6)     (60, 6) 279_old(old)  6(main)       n/a            1   segment end is still idle (chain never closed)
+   ((6, 35),)  (106, 486)  (106, 132) -             -             n/a            0  walk covers [106, 486, 486, 487] but not the (u,v) hop
+   ((6, 40),)  (133, 534)  (133, 246) -             -             n/a            0  walk covers [538, 538, 539, 540, 540, 541, 541, 542, 543] but not the (u,v) hop
+    ((7, 1),)    (280, 7)    (123, 7) -             -             n/a            0  walk covers [290, 289, 288, 287, 286, 284, 283] but not the (u,v) hop
+   ((7, 55),)  (206, 175)  (206, 175) 206(main)     175(main)     YES            1  
+   ((7, 58),)  (619, 207)  (247, 207) 620_old(old)  207(main)     n/a            1   segment end is still idle (chain never closed)
+    ((8, 1),)    (8, 295)    (8, 103) -             -             n/a            0  walk covers [8, 295, 296, 297, 297, 298, 299, 300] but not the (u,v) hop
+   ((8, 50),)  (153, 559)  (153, 182) -             -             n/a            0  walk covers [153] but not the (u,v) hop
+   ((8, 55),)  (594, 183)  (248, 183) 597_old(old)  183(main)     n/a            1   segment end is still idle (chain never closed)
+    ((9, 1),)    (9, 307)    (9, 128) -             -             n/a            0  walk covers [307, 308, 309, 310, 311, 312, 313, 314] but not the (u,v) hop
+   ((9, 56),)  (178, 590)  (178, 208) 178(main)     208_old(old)  YES            1  
+   ((9, 59),)  (209, 625)  (209, 249) -             -             n/a            0  walk covers [209, 625] but not the (u,v) hop
+   ((10, 1),)   (10, 322)   (10, 150) -             -             n/a            0  walk covers [323, 324, 326, 327, 328, 329, 330] but not the (u,v) hop
+  ((10, 62),)  (616, 203)  (225, 203) 617_old(old)  203(main)     n/a            1   segment end is still idle (chain never closed)
+  ((10, 65),)  (641, 226)  (250, 226) -             -             n/a            0  walk covers [226] but not the (u,v) hop
+   ((11, 1),)   (11, 340)    (11, 75) -             -             n/a            0  walk covers [11, 340, 341, 342, 342, 343, 344, 345] but not the (u,v) hop
+  ((11, 67),)  (224, 234)  (224, 234) -             -             n/a            0  walk covers [234] but not the (u,v) hop
+  ((11, 70),)  (235, 643)  (235, 251) -             -             n/a            0  nothing on this wire is embedded
+   ((12, 1),)   (12, 349)    (12, 46) 12(main)      46(main)      YES            1  
+  ((12, 58),)  (197, 615)  (197, 210) 197(main)     210_old(old)  YES            1  
+  ((12, 62),)  (211, 630)  (211, 252) -             -             n/a            0  walk covers [211, 630] but not the (u,v) hop
+   ((13, 1),)   (352, 13)    (56, 13) 56_2(gbg2)    13(main)      YES            1  
+  ((13, 58),)  (195, 614)  (195, 212) 195(main)     212_old(old)  YES            1  
+  ((13, 62),)  (635, 213)  (253, 213) 635_old(old)  213(main)     n/a            1   segment end is still idle (chain never closed)
+   ((14, 1),)    (34, 14)    (34, 14) 34(main)      14(main)      YES            1  
+  ((14, 49),)  (172, 589)  (172, 190) 172_6_old(old) 172_6(gbg6)   NO             0  hop endpoint collapsed/absent; nearest segment
+  ((14, 52),)  (602, 191)  (254, 191) 605_old(old)  191(main)     n/a            1   segment end is still idle (chain never closed)
+   ((15, 1),)   (358, 15)   (125, 15) 363_old(old)  15(main)      n/a            1   segment end is still idle (chain never closed)
+  ((15, 67),)  (236, 230)  (236, 230) 236_9_old(old) 230_9(gbg9)   YES            1  
+
+kept-as-cube H boxes: [644]
+   hbox 644 (q15, row 70.0): embedded as NOT EMBEDDED
+
+=== flagged H with NO collar on their wire segment: 26  (checker deficit is 4) ===
+   ((0, 18),)  edge (57, 82)  wire (57, 82)  segment - -> -  flip=n/a  walk covers [57] but not the (u,v) hop
+   ((0, 21),)  edge (425, 83)  wire (240, 83)  segment - -> -  flip=n/a  walk covers [441, 440, 439, 439, 438, 438, 437, 436] but not the (u,v) hop
+   ((1, 25),)  edge (418, 76)  wire (107, 76)  segment - -> -  flip=n/a  walk covers [107] but not the (u,v) hop
+   ((1, 28),)  edge (488, 108)  wire (241, 108)  segment - -> -  flip=n/a  walk covers [500, 499, 498, 498, 497, 497, 496, 495] but not the (u,v) hop
+   ((2, 21),)  edge (410, 61)  wire (84, 61)  segment - -> -  flip=n/a  walk covers [84] but not the (u,v) hop
+   ((2, 25),)  edge (85, 446)  wire (85, 242)  segment - -> -  flip=n/a  walk covers [456, 456, 457, 458, 458, 459, 459, 460, 461] but not the (u,v) hop
+   ((3, 34),)  edge (131, 519)  wire (131, 243)  segment - -> -  flip=n/a  walk covers [524, 524, 525, 526, 526, 527, 527, 528, 529] but not the (u,v) hop
+   ((4, 1),)  edge (265, 4)  wire (78, 4)  segment - -> -  flip=n/a  walk covers [272, 271, 270, 269, 268, 267, 265] but not the (u,v) hop
+   ((4, 39),)  edge (124, 156)  wire (124, 156)  segment - -> -  flip=n/a  walk covers [124] but not the (u,v) hop
+   ((4, 42),)  edge (564, 157)  wire (244, 157)  segment - -> -  flip=n/a  walk covers [571, 570, 569, 569, 568, 568, 567, 566] but not the (u,v) hop
+   ((5, 40),)  edge (514, 126)  wire (158, 126)  segment - -> -  flip=n/a  walk covers [158] but not the (u,v) hop
+   ((5, 43),)  edge (576, 159)  wire (245, 159)  segment - -> -  flip=n/a  walk covers [582, 581, 580, 580, 579, 579, 577] but not the (u,v) hop
+   ((6, 35),)  edge (106, 486)  wire (106, 132)  segment - -> -  flip=n/a  walk covers [106, 486, 486, 487] but not the (u,v) hop
+   ((6, 40),)  edge (133, 534)  wire (133, 246)  segment - -> -  flip=n/a  walk covers [538, 538, 539, 540, 540, 541, 541, 542, 543] but not the (u,v) hop
+   ((7, 1),)  edge (280, 7)  wire (123, 7)  segment - -> -  flip=n/a  walk covers [290, 289, 288, 287, 286, 284, 283] but not the (u,v) hop
+   ((8, 1),)  edge (8, 295)  wire (8, 103)  segment - -> -  flip=n/a  walk covers [8, 295, 296, 297, 297, 298, 299, 300] but not the (u,v) hop
+   ((8, 50),)  edge (153, 559)  wire (153, 182)  segment - -> -  flip=n/a  walk covers [153] but not the (u,v) hop
+   ((9, 1),)  edge (9, 307)  wire (9, 128)  segment - -> -  flip=n/a  walk covers [307, 308, 309, 310, 311, 312, 313, 314] but not the (u,v) hop
+   ((9, 59),)  edge (209, 625)  wire (209, 249)  segment - -> -  flip=n/a  walk covers [209, 625] but not the (u,v) hop
+   ((10, 1),)  edge (10, 322)  wire (10, 150)  segment - -> -  flip=n/a  walk covers [323, 324, 326, 327, 328, 329, 330] but not the (u,v) hop
+   ((10, 65),)  edge (641, 226)  wire (250, 226)  segment - -> -  flip=n/a  walk covers [226] but not the (u,v) hop
+   ((11, 1),)  edge (11, 340)  wire (11, 75)  segment - -> -  flip=n/a  walk covers [11, 340, 341, 342, 342, 343, 344, 345] but not the (u,v) hop
+   ((11, 67),)  edge (224, 234)  wire (224, 234)  segment - -> -  flip=n/a  walk covers [234] but not the (u,v) hop
+   ((11, 70),)  edge (235, 643)  wire (235, 251)  segment - -> -  flip=n/a  nothing on this wire is embedded
+   ((12, 62),)  edge (211, 630)  wire (211, 252)  segment - -> -  flip=n/a  walk covers [211, 630] but not the (u,v) hop
+   ((14, 49),)  edge (172, 589)  wire (172, 190)  segment 172_6_old(old) -> 172_6(gbg6)  flip=NO  hop endpoint collapsed/absent; nearest segment

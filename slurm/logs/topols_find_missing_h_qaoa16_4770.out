@@ -1,0 +1,62 @@
+HEAD: 854ee28   src dirty: 0 file(s)
+=== compile qaoa_16 (committed code) ===
+Executing qaoa_16 benchmark.
+Embedding progress:
+x_length: 9.0 y_length: 9.0 z_length: 58
+Space-time volume: 4698.0
+Time: 58
+Space: 81.0
+Compilation time: 228.45377588272095
+QASM H-gate count: 48
+H-boxes kept as cubes (on an output-port wire): 1
+Expected collars (odd-length H runs, H*H=I cancelled): 48
+Rendered yellow-collar count: 44
+SAFETY CHECK FAILED (diff -4)
+
+=== locate the missing H ===
+[seam wire, attributed by qubit/row] ((2, 21),) -> ['84_3', '309_3', '308_3', '73_2']  collars=1
+[seam wire, attributed by qubit/row] ((4, 42),) -> ['284_9', '284_9_old', '283_9', '282_9', '571_old', '570', '569', '569_old', '568', '568_old', '567', '566', '566_old', '347_6', '347_6_old', '346_6', '345_6', '344_6', '343_6', '157_6']  collars=1
+
+benchmark=qaoa_16 pkl=qaoa_16_commit
+expected H = 48   rendered collars = 44   H with a collar on their wire = 44   -> missing = 4
+
+================ MISSING: 4 ================
+
+#1  H ((6, 35),)   qubit 6, row 35
+    ZX nodes (outer graph, before idling): 106 -- 132
+    flag after idling/remat in outer graph: edge frozenset({106, 486})
+    wire: 8 nodes, 8 lattice pts, collars on it = 0, H flags on it = [((6, 35),)]
+           132_5  pos=(2, 2, 31)  type=5 (T)  qrow=(6, 36)  ori=j  tqec=XZX  <- gate-by-gate block 5
+           328_5  pos=(2, 2, 30)  type=2 (idle)  qrow=(-1, -1)  ori=None  tqec=None  <- gate-by-gate block 5
+           327_5  pos=(2, 2, 29)  type=2 (idle)  qrow=(-1, -1)  ori=None  tqec=None  <- gate-by-gate block 5
+             487  pos=(2, 2, 28)  type=2 (idle)  qrow=(6, 33.333333333333336)  ori=None  tqec=None  <- main loop
+         487_old  pos=(2, 2, 27)  type=2 (idle)  qrow=(6, 33.333333333333336)  ori=None  tqec=None  <- ceiling/basic rename
+             486  pos=(2, 2, 26)  type=2 (idle)  qrow=(6, 30.666666666666668)  ori=None  tqec=None  <- main loop
+         486_old  pos=(2, 2, 25)  type=2 (idle)  qrow=(6, 30.666666666666668)  ori=None  tqec=None  <- ceiling/basic rename
+             106  pos=(2, 2, 24)  type=0 (Z-spider)  qrow=(6, 28)  ori=j  tqec=XZX  <- main loop
+      replay from 132_5: no-flip->j  flip->i  actual ori[106]=j  => flip was NOT applied
+    crop x[-1,5] y[-1,5] z[21,34]  345 nodes -> result/visualization/qaoa_16_missing1_q6_r35_interactive.html
+
+#2  H ((11, 70),)   qubit 11, row 70
+    ZX nodes (outer graph, before idling): 235 -- 251
+    flag after idling/remat in outer graph: edge frozenset({235, 643})
+    NO embedded wire carries this H.  endpoint realisations: {235: [], 251: []}
+    nothing to crop (not embedded)
+
+#3  H ((14, 49),)   qubit 14, row 49
+    ZX nodes (outer graph, before idling): 172 -- 190
+    flag after idling/remat in outer graph: edge frozenset({172, 589})
+    wire: 2 nodes, 2 lattice pts, collars on it = 0, H flags on it = [((14, 49),)]
+         190_old  pos=(2, 6, 45)  type=5 (T)  qrow=(14, 50)  ori=j  tqec=XZX  <- ceiling/basic rename
+           172_6  pos=(2, 6, 44)  type=1 (X-spider)  qrow=(14, 48)  ori=i  tqec=XZZ  <- gate-by-gate block 6
+      replay from 190_old: no-flip->i  flip->j  actual ori[172_6]=i  => flip was NOT applied
+    crop x[-1,5] y[3,9] z[41,48]  146 nodes -> result/visualization/qaoa_16_missing3_q14_r49_interactive.html
+
+#4  H ((15, 70),)   qubit 15, row 70
+    ZX nodes (outer graph, before idling): 237 -- 255
+    flag after idling/remat in outer graph: hbox 644
+    NO embedded wire carries this H.  endpoint realisations: {237: [], 255: []}
+    nothing to crop (not embedded)
+
+=== full interactive diagram ===
+Interactive pipe diagram written to: result/visualization/qaoa_16_interactive.html

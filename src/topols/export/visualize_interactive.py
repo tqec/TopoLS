@@ -243,23 +243,37 @@ def _add_connected_edge(acc, p1, p2, node1, node2, cube_size):
                            [c[a] for a in ["x", "x", "y", "y", "z", "z"]])
 
 
-def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness=0.18, out_path=None):
+def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness=0.18, out_path=None,
+                          label_offset=None, label_size=11, leader_lines=False):
     """Builds the same pipe diagram as visualize.py, as a single draggable/
     rotatable/zoomable HTML file (Plotly, no server needed -- open directly
-    in a browser). Returns the output path."""
+    in a browser). Returns the output path.
+
+    `label_offset=(dx, dy, dz)` moves every node-id label off the cube (the
+    default puts it just above, which for a dense region lands inside the
+    pipe to the next cube up); `leader_lines=True` draws a thin grey line
+    from each label back to its cube so the pairing stays unambiguous.
+    Both are for cropped debug views -- the full-diagram defaults are
+    unchanged."""
     node_acc = _MeshAccumulator()
     label_xs, label_ys, label_zs, label_text = [], [], [], []
+    lead_x, lead_y, lead_z = [], [], []
+    if label_offset is None:
+        label_offset = (0.0, 0.0, cube_size * 1.5)
     for node_id, node in nodes.items():
         face_colors = get_node_face_colors(node)
         _add_node(node_acc, node["position"], cube_size, face_colors)
-        # Node IDs, offset above each cube so the text does not sink into the
+        # Node IDs, offset off each cube so the text does not sink into the
         # coloured mesh. Synthetic `path_*` stubs are skipped -- they are not
         # real embedded nodes and labelling them makes the view unreadable.
         if isinstance(node_id, str) and node_id.startswith("path_"):
             continue
         x, y, z = node["position"]
-        label_xs.append(x); label_ys.append(y); label_zs.append(z + cube_size * 1.5)
+        lx, ly, lz = x + label_offset[0], y + label_offset[1], z + label_offset[2]
+        label_xs.append(lx); label_ys.append(ly); label_zs.append(lz)
         label_text.append(f"{node_id}")
+        if leader_lines:
+            lead_x.extend([x, lx, None]); lead_y.extend([y, ly, None]); lead_z.extend([z, lz, None])
 
     edge_acc = _MeshAccumulator()
     for (n1, n2) in edges:
@@ -279,11 +293,21 @@ def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness
     if edge_wire is not None:
         traces.append(edge_wire)
 
+    if leader_lines and lead_x:
+        traces.append(go.Scatter3d(
+            x=lead_x, y=lead_y, z=lead_z,
+            mode="lines",
+            line=dict(color="dimgray", width=1.5),
+            showlegend=False,
+            hoverinfo="skip",
+            name="label leaders",
+        ))
+
     traces.append(go.Scatter3d(
         x=label_xs, y=label_ys, z=label_zs,
         mode="text",
         text=label_text,
-        textfont=dict(size=11, color="black"),
+        textfont=dict(size=label_size, color="black"),
         textposition="top center",
         hoverinfo="text",
         name="node labels",
