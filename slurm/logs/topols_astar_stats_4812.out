@@ -1,0 +1,27 @@
+Space-time volume: 486.0
+Compilation time: 13.376518487930298
+=== bv_16: 5732 A* calls ===
+  plain exhausted n=     91  expansions: median=     1 p99=     3 max=     3   seconds: median=0.0000 p99=0.0000 max=0.0000
+  plain ok        n=    214  expansions: median=    25 p99=    92 max=   109   seconds: median=0.0002 p99=0.0005 max=0.0006
+  plain timeout   n=    226  expansions: median= 20000 p99= 21742 max= 21846   seconds: median=0.1001 p99=0.1001 max=0.1006
+  zmax  exhausted n=    531  expansions: median=    59 p99=   272 max=   275   seconds: median=0.0002 p99=0.0015 max=0.0022
+  zmax  ok        n=   4670  expansions: median=     4 p99=    96 max=   154   seconds: median=0.0000 p99=0.0005 max=0.0008
+  expansion rate (calls >=5ms): median 193117/s  -> 0.1 s ~= 19312 expansions, 1 ms ~= 193
+Space-time volume: 648.0
+Compilation time: 16.40977931022644
+=== dj_16: 103162 A* calls ===
+  plain exhausted n=   3348  expansions: median=     1 p99=   206 max=   219   seconds: median=0.0000 p99=0.0011 max=0.0012
+  plain ok        n=   1228  expansions: median=    17 p99=    55 max=    66   seconds: median=0.0001 p99=0.0004 max=0.0004
+  plain timeout   n=    197  expansions: median= 16016 p99= 21055 max= 21275   seconds: median=0.1001 p99=0.1001 max=0.1001
+  zmax  exhausted n=   4773  expansions: median=     1 p99=   227 max=   323   seconds: median=0.0000 p99=0.0012 max=0.0019
+  zmax  ok        n=  93616  expansions: median=     2 p99=    39 max=   123   seconds: median=0.0000 p99=0.0002 max=0.0009
+  expansion rate (calls >=5ms): median 160048/s  -> 0.1 s ~= 16005 expansions, 1 ms ~= 160
+Space-time volume: 5022.0
+Compilation time: 270.5074861049652
+=== qaoa_16: 2522030 A* calls ===
+  plain exhausted n= 175902  expansions: median=     1 p99=   347 max=   588   seconds: median=0.0000 p99=0.0018 max=0.0057
+  plain ok        n=  16388  expansions: median=    10 p99=   120 max=   303   seconds: median=0.0001 p99=0.0007 max=0.0056
+  plain timeout   n=   1992  expansions: median= 16522 p99= 19551 max= 19737   seconds: median=0.1001 p99=0.1001 max=0.1108
+  zmax  exhausted n= 194282  expansions: median=     1 p99=   365 max=   588   seconds: median=0.0000 p99=0.0019 max=0.0061
+  zmax  ok        n=2133466  expansions: median=     2 p99=    47 max=   278   seconds: median=0.0000 p99=0.0003 max=0.0421
+  expansion rate (calls >=5ms): median 165046/s  -> 0.1 s ~= 16505 expansions, 1 ms ~= 165

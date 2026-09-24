@@ -27,11 +27,21 @@ parser.add_argument('--random_seed', '-r', type=int, default=0,
 parser.add_argument('--seed_step', '-s', type=int, default=5,
                     help='Number of random seed will be tried')
 parser.add_argument('--time_bound', '-t', type=float, default=3,
-                    help='Time bound for each MCTS iteration')
+                    help='Wall-clock budget (s) per mcts() call -- the anytime knob. Within a call the '
+                         'search is a deterministic function of (seed, state, #iterations) and mcts() '
+                         'returns the best rollout seen, so more time can only extend the same '
+                         'iteration sequence; -i is the hard iteration cap. Routing (A*) is bounded by '
+                         'a deterministic expansion cap, not by time.')
 parser.add_argument('--iter_num', '-i', type=int, default=10000,
                     help='Number of iterations for MCTS')
 parser.add_argument('--saving_name', '-csv', default='result', 
                     help='csv result file name (without .csv extension)')
+parser.add_argument('--incumbent', type=int, default=0,
+                    help='1 = anytime mode across runs: if result/topols/<name>.pkl already holds a '
+                         'compile of this circuit with a volume <= this run\'s, keep it and do not '
+                         'overwrite it. Makes re-running with more -t / -s / -i monotone in volume '
+                         'even though the wall-clock budget is noisy. Off by default so regression '
+                         'runs always report the current code.')
 parser.add_argument('--spread_num', '-sp', type=int, default=0,
                     help='For dense circuit we will spread the quantum gates into different rows')
 parser.add_argument('--initial_block', '-b0', type=int, default=0,
@@ -221,12 +231,26 @@ data = {
 dir_path = os.path.join("result", "topols")
 os.makedirs(dir_path, exist_ok=True)
 
-with open(f'result/topols/{file_name}.pkl', 'wb') as f:
-    pickle.dump(data, f)
+pkl_path = f'result/topols/{file_name}.pkl'
+incumbent_kept = False
+if args.incumbent == 1 and os.path.exists(pkl_path):
+    try:
+        with open(pkl_path, 'rb') as f:
+            _old = pickle.load(f)
+        _old_vol = _old.get('volume')
+    except Exception:
+        _old_vol = None
+    if _old_vol is not None and _old_vol <= volume:
+        incumbent_kept = True
+        print(f"Incumbent kept: existing {pkl_path} has volume {_old_vol} <= this run's {volume}; not overwritten")
+if not incumbent_kept:
+    with open(pkl_path, 'wb') as f:
+        pickle.dump(data, f)
 
 # Save selected values as CSV
 df = pd.DataFrame([{
     'file_name': file_name,
+    'incumbent_kept': incumbent_kept,
     'volume': int(volume),
     'space': int(space),
     'time': int(time_step),

@@ -50,10 +50,15 @@ Verification set (job 4806):
 2. **`GOLDENS`** (rule 4: intentional fix) and **commit**. Suggested
    goldens = job 4808's values; qaoa_16 needs a tolerance or a pinned
    path (4698 vs 5022 depends on whether block 9 falls back).
-3. **basic_embedding** still stacks with a `+2` T-exit slab and is used
-   whenever MCTS fails a layer; more `-s`/`-t` should keep MCTS from
-   falling back at all (user's point) -- worth a `-s 5 -t 10` comparison
-   with `TOPOLS_TAIL_DEBUG` once the suite is done.
+3. **Search budget (evening):** A*'s 0.1 s wall-clock timeout is now a
+   deterministic expansion cap (5000, calibrated: real routes <= 303
+   expansions, timeouts fired at ~16-22k). `-t` stays the 2 s anytime
+   budget -- a pure `-i` budget was tried and abandoned (bv_16 13 s ->
+   559 s; see the log). `prog.py --incumbent 1` makes successive runs
+   with bigger `-t`/`-s`/`-i` monotone in volume. Next: the `-s 5 -t 10`
+   comparison on qaoa_16 / ghz_16 with `--incumbent 1` and
+   `TOPOLS_TAIL_DEBUG`, to see whether the fallback (and its `+2`
+   brute-force slab) disappears with more budget.
 4. `git stash@{0}` holds the abandoned identity-list attempt; drop it once
    this is committed. `TOPOLS_TAIL_DEBUG` hooks are env-gated and free
    when off.

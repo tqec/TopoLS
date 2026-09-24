@@ -558,6 +558,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
         if best_state is not None:
             ceiling_flag = 0
+            _tail(f"LAYER i={i} block={block} chosen_vol={best_state.vol} best_reward={best_reward}")
 
         if best_state is None:
             _tail(f"MAIN i={i} block={block}: MCTS tier returned None for every seed (ceiling_flag={ceiling_flag})")
