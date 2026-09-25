@@ -123,8 +123,18 @@ What the sweep says, across the six:
   dj `-s 4` trap (which `-s 2` escapes via the ceiling retry) is still not
   recoverable -- the alternative set is not yet a true superset; (2) its
   cost grows with the number of alternatives (bv: 14 s -> 40/61/155 s at
-  s=4/8/8t5 for no volume gain), so it needs a cap. Both are the next
-  change.
+  s=4/8/8t5 for no volume gain), so it needs a cap. Both done the same
+  evening (jobs 4899/4900): `--backtrack k` tries at most k alternatives,
+  and each gets two rungs -- the MCTS tier on ALL k alternatives first,
+  then the ceiling-retry tier on them (a ceiling lifts the frontier by a
+  layer, so a later alternative's plain MCTS beats an earlier one's
+  ceiling: dj_16 `-s 8` is 648 if the ceiling rung is taken first,
+  **567** with the rungs ordered). Results: dj `-s 4` trap 1458 ->
+  **648** (via an alternative's ceiling retry); qaoa `-s 8` trap 4941 ->
+  **3888-3969** (its best value, 225-230 s, under the 261 s baseline);
+  bv `-s 8` overhead 61 s -> 20 s; ghz/wstate need only k=1. exp.py picks
+  updated: dj `-s 8 --backtrack 3`, vqe `-s 4 --backtrack 3`, ghz and
+  wstate `--backtrack 1`, qaoa `-s 8 -t 2 --backtrack 3`.
 
 ---
 

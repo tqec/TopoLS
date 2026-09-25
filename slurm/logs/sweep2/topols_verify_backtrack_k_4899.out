@@ -1,0 +1,11 @@
+bench      s  t  k  | volume    collars  wall_s  trace
+dj_16      4  2  3  | 648.0     31/31    24      fb=0 i=4: alternative #1 (layer-3 vol=324.0) worked via ceiling-retry -> vol=567.0;
+dj_16      8  2  1  | 648.0     31/31    27      fb=0 i=4: alternative #1 (layer-3 vol=324.0) worked via ceiling-retry -> vol=567.0;
+dj_16      8  2  3  | 648.0     31/31    26      fb=0 i=4: alternative #1 (layer-3 vol=324.0) worked via ceiling-retry -> vol=567.0;
+ghz_16     2  2  1  | 243.0     1/1      14      fb=0 i=2: alternative #1 (layer-1 vol=81.0) worked via mcts -> vol=162.0;
+ghz_16     2  2  3  | 243.0     1/1      14      fb=0 i=2: alternative #1 (layer-1 vol=81.0) worked via mcts -> vol=162.0;
+wstate_16  8  2  1  | 8019.0    74/74    171     fb=0 i=4: alternative #1 (layer-3 vol=243.0) worked via ceiling-retry -> vol=405.0;i=16: alternative #1 (layer-15 v
+wstate_16  8  2  3  | 8019.0    74/74    173     fb=0 i=4: alternative #1 (layer-3 vol=243.0) worked via ceiling-retry -> vol=405.0;i=16: alternative #1 (layer-15 v
+bv_16      8  2  1  | 486.0     21/21    21      fb=0 i=2: alternative #1 (layer-1 vol=162.0) worked via ceiling-retry -> vol=405.0;
+bv_16      8  2  3  | 486.0     21/21    20      fb=0 i=2: alternative #1 (layer-1 vol=162.0) worked via ceiling-retry -> vol=405.0;
+qaoa_16    8  2  3  | 3888.0    48/48    225     fb=2 i=8: alternative #1 (layer-7 vol=729.0) worked via mcts -> vol=810.0;i=9: alternative #3 (layer-8 vol=810.0) w

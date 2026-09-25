@@ -33,9 +33,10 @@ parser.add_argument('--iter_num', '-i', type=int, default=10000,
 parser.add_argument('--saving_name', '-csv', default='result', 
                     help='csv result file name (without .csv extension)')
 parser.add_argument('--backtrack', type=int, default=0,
-                    help='1 = when a layer\'s MCTS fails from the best previous-layer state, retry it from the '
-                         'other seeds\' previous-layer states (next-best first) before the ceiling-retry / '
-                         'gate-by-gate ladder. Off by default.')
+                    help='k >= 1: when a layer\'s MCTS fails from the best previous-layer state, retry it from up '
+                         'to k of the other seeds\' previous-layer states (next-best first; each gets the MCTS '
+                         'tier and then the ceiling-retry tier) before the ceiling-retry / gate-by-gate ladder. '
+                         '0 = off (default).')
 parser.add_argument('--spread_num', '-sp', type=int, default=0,
                     help='For dense circuit we will spread the quantum gates into different rows')
 parser.add_argument('--initial_block', '-b0', type=int, default=0,

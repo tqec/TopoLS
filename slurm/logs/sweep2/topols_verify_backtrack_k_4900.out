@@ -1,0 +1,5 @@
+bench      s  t  k  | volume    collars  wall_s  trace
+dj_16      8  2  3  | 567.0     31/31    24      fb=0 i=4: alternative #2 (layer-3 vol=324.0) worked via mcts -> vol=486.0;
+qaoa_16    8  2  3  | 3969.0    48/48    230     fb=2 i=8: alternative #1 (layer-7 vol=729.0) worked via mcts -> vol=810.0;i=9: alternative #3 (layer-8 vol=810.0) w
+wstate_16  8  2  3  | 8019.0    74/74    179     fb=0 i=4: alternative #1 (layer-3 vol=243.0) worked via ceiling-retry -> vol=405.0;i=16: alternative #1 (layer-15 v
+dj_16      4  2  3  | 648.0     31/31    34      fb=0 i=4: alternative #1 (layer-3 vol=324.0) worked via ceiling-retry -> vol=567.0;

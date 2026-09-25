@@ -262,7 +262,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     backup_flag = 0
     input_mapping_flag = 0
     brute_to_block = 0
-    # --backtrack 1: keep every seed's result of the previous layer so that,
+    # --backtrack k (k >= 1): keep every seed's result of the previous layer so that,
     # if the current layer's MCTS tier fails from the chosen (best-volume)
     # one, the next-best previous-layer states are tried before the ceiling
     # retry / gate-by-gate ladder. More seeds -> more alternatives, never
@@ -458,11 +458,14 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 z_floor = block_max_z
                 block_flag = 0
 
-        def _mcts_tier_from(start):
-            """Backtrack helper (--backtrack 1): run this layer's MCTS tier
+        def _mcts_tier_from(start, ceiling_mode=False):
+            """Backtrack helper (--backtrack k): run this layer's MCTS tier
             (the same two seed passes as below) from an alternative
-            previous-layer state. Only used off the block boundary
-            (block_switch False), so no ceiling/priority handling."""
+            previous-layer state. With ceiling_mode=True it mirrors the
+            main loop's ceiling-retry tier instead (start = ceiling(alt);
+            idle nodes whose port is a real non-'k' node are placed first,
+            search runs with ceiling_switch). Only used off the block
+            boundary (block_switch False)."""
             _ipl, _ipo, _ipt = start.embed_node_pos, start.embed_node_ori, start.embed_node_type
             _ep, _occd = start.embed_path, frozenset(set(start.occupied))
             _zf, _iht, _ipla, _tt = start.z_floor, start.idle_h_track, start.idle_place, start.t_track
@@ -476,8 +479,31 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     _nic = {k: list(v) for k, v in node_input_connect.items()}
                     _keys = list(node_type.keys())
                     random.shuffle(_keys)
+                    _prio = []
+                    if ceiling_mode:
+                        for _k in _keys:
+                            if node_type[_k] != 2:
+                                continue
+                            _port = _nic[_k][0]
+                            if _ipt.get(_port) in (2, 3):
+                                continue
+                            if _ipo.get(_port) != 'k':
+                                _prio.append(_k)
+                        _others = [_k for _k in _keys if _k not in _prio]
+                        random.shuffle(_others)
+                        _keys = _prio + _others
                     _root = EmbeddingState(embed_node_pos=_ipl, embed_node_ori=_ipo, embed_node_type=_ipt, embed_path=_ep, occupied=_occd, z_floor=_zf, x_min_floor=x_min_floor, x_max_floor=x_max_floor, y_min_floor=y_min_floor, y_max_floor=y_max_floor, idle_h_track=_iht, idle_place=_ipla, t_track=_tt, node_type=node_type, input_connect=_nic, inter_connect=node_inter_connect, output_connect=node_output_connect, order=_keys, z_length=z_length, hadamard_edges=hadamard_edges)
-                    _jobs.append((_root, random.getstate(), iter_num, time_bound, _mn, False, False, i, length))
+                    if ceiling_mode:
+                        for _ in range(len(_prio)):
+                            _mv = _root.moves(ceiling_switch=True)
+                            if not _mv:
+                                break
+                            _root = _root.next_state(_mv[0])
+                            if _root is None:
+                                break
+                        if _root is None:
+                            continue
+                    _jobs.append((_root, random.getstate(), iter_num, time_bound, _mn, False, ceiling_mode, i, length))
                 for _bs in _run_seeds_parallel(_jobs):
                     if _bs is not None:
                         _cands.append(_bs)
@@ -597,9 +623,12 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         if best_state is not None:
             ceiling_flag = 0
 
-        if best_state is None and backtrack == 1 and not block_switch and prev_candidates and prev_candidates_layer == i - 1:
-            _tail(f"BACKTRACK i={i} block={block}: MCTS tier failed from the chosen layer-{i-1} state; {len(prev_candidates)} alternative(s)")
-            for _alt in prev_candidates:
+        if best_state is None and backtrack >= 1 and not block_switch and prev_candidates and prev_candidates_layer == i - 1:
+            _tail(f"BACKTRACK i={i} block={block}: MCTS tier failed from the chosen layer-{i-1} state; trying up to {backtrack} of {len(prev_candidates)} alternative(s)")
+            # Prepare the capped alternatives (reward() bookkeeping, as the
+            # shared end-of-layer code does for the chosen state).
+            _alts = []
+            for _ai, _alt in enumerate(prev_candidates[:backtrack]):
                 _r = _alt.reward(length=length)
                 if _r is None:
                     continue
@@ -610,16 +639,35 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     _pl.append(_track_a[_n][1])
                 _alt.embed_path = tuple(_pl)
                 _alt.occupied = frozenset(_occ_a)
-                _cand, _cands = _mcts_tier_from(_alt)
-                if _cand is not None:
-                    best_state, layer_candidates = _cand, _cands
-                    best_reward = -_cand.vol
-                    pre_state, pre_ceiling_track = _alt, _ct_a
-                    ceiling_flag = 0
-                    _tail(f"BACKTRACK i={i}: alternative layer-{i-1} state (vol={_alt.vol}) worked -> vol={_cand.vol}")
+                _alts.append((_ai, _alt, _ct_a))
+            # Rung 1 for ALL alternatives before rung 2 for any: a ceiling
+            # retry lifts the whole frontier by a layer, so an alternative
+            # whose plain MCTS works is always preferable to an earlier
+            # alternative that only works after a ceiling (measured: dj_16
+            # -s 8 gave 567 via a later alternative's MCTS but 648 when
+            # alternative #1's ceiling retry was taken first).
+            _found = None
+            for _tier, _ceiling_mode in (("mcts", False), ("ceiling-retry", True)):
+                for _ai, _alt, _ct_a in _alts:
+                    if _ceiling_mode:
+                        _start = ceiling(_fresh_copy_for_ceiling(_alt), _ct_a, pre_node_type)
+                    else:
+                        _start = _alt
+                    _cand, _cands = _mcts_tier_from(_start, ceiling_mode=_ceiling_mode)
+                    if _cand is not None:
+                        _found = (_ai, _alt, _ct_a, _cand, _cands, _tier)
+                        break
+                if _found:
                     break
+            if _found:
+                _ai, _alt, _ct_a, _cand, _cands, _tier = _found
+                best_state, layer_candidates = _cand, _cands
+                best_reward = -_cand.vol
+                pre_state, pre_ceiling_track = _alt, _ct_a
+                ceiling_flag = 0
+                _tail(f"BACKTRACK i={i}: alternative #{_ai+1} (layer-{i-1} vol={_alt.vol}) worked via {_tier} -> vol={_cand.vol}")
             else:
-                _tail(f"BACKTRACK i={i}: no alternative worked; continuing to the ceiling/fallback ladder")
+                _tail(f"BACKTRACK i={i}: none of the {len(_alts)} alternative(s) worked on either rung; continuing to the ceiling/fallback ladder")
 
         if best_state is None:
             _tail(f"MAIN i={i} block={block}: MCTS tier returned None for every seed (ceiling_flag={ceiling_flag})")
@@ -1285,7 +1333,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         pre_ceiling_track = ceiling_track
         pre_node_type = node_type
         brute_last = False
-        if backtrack == 1:
+        if backtrack >= 1:
             prev_candidates = sorted((c for c in layer_candidates if c is not best_state), key=lambda s_: s_.vol)
             prev_candidates_layer = i
 

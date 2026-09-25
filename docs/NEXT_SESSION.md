@@ -60,12 +60,26 @@ Verification set (job 4806):
    `docs/exp.py` `commands_1`; their 3D diagrams and pkls in
    `docs/result/visualization/best/` (`index.md`, served at
    `http://localhost:8765/best/...`). grover/qft/qpe were not swept.
-   **Next on backtrack:** (a) run the ceiling-retry tier per alternative
-   too -- dj `-s 4`'s trap is escaped at `-s 2` only through the ceiling
-   retry, so today's alternative set is not yet a superset; (b) cap the
-   alternatives (`--backtrack k`) -- bv pays 14 -> 61 s at s=8 for no
-   gain. Then decide whether it becomes the default, then `GOLDENS`.
-4. `basic_embedding` still stacks with a `+2` T-exit slab whenever a
+   `--backtrack k` is done: k caps the alternatives, each gets the MCTS
+   rung (all k first) and then the ceiling-retry rung; dj `-s 4` trap
+   escaped (648), qaoa `-s 8` -> 3888-3969, bv overhead capped. Picks in
+   `docs/exp.py` use k=1 (ghz, wstate) / k=3 (dj, vqe, qaoa).
+   **Left:** regenerate the `best/` artifacts for dj (k=3) and qaoa (new
+   pick `-s 8 -t 2 --backtrack 3`) via `slurm/make_best.slurm` logic;
+   decide whether backtrack becomes the default; `GOLDENS` for the new
+   configs.
+4. **Before the Rust port (user: "先不急"):** `-t` is a wall clock, so a
+   faster implementation buys more iterations per layer, not less compile
+   time -- the floor stays `layers x 2 s`. Plan: make `-t` a *work*
+   budget in a deterministic unit (A* expansions; ~165k/s on pennqsl-1,
+   so `-t 2` = 330k), keeping the per-layer compute profile of the wall
+   clock (unlike a plain `-i` cap, which exploded time) and the anytime
+   property, with a real wall clock only as a safety cap. Payoff: Rust
+   speed shows up directly as time, and Python vs Rust become bit-
+   identical for the same (seed, state, budget) -- the port can be
+   validated by exact equality. Calibrate in Python first (9 benchmarks
+   unchanged), then port.
+5. `basic_embedding` still stacks with a `+2` T-exit slab whenever a
    layer falls through to it; with the picks above most fallbacks are
    gone, so this matters less. `TOPOLS_TAIL_DEBUG` hooks are env-gated
    and free when off. Stash is empty.
