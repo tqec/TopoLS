@@ -27,3 +27,4 @@ dev/
 slurm/
 docs/tutorial_executed.ipynb
 tests/
+rust/topols_core/target/
