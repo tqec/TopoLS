@@ -79,10 +79,7 @@ uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv res
 uv run 2tqec.py -f ghz_16 -p True      # result/bgraph/ghz_16.bgraph + result/visualization/ghz_16.png
 uv run 2tqec.py -f ghz_16 -i True      # result/visualization/ghz_16_interactive.html (drag / rotate / zoom)
 
-# 3. check that every Hadamard of the circuit appears exactly once in the diagram
-uv run python -m topols.tools.hadamard_check -f ghz_16 -b 20
-
-# 4. simulate a block graph with TQEC (small circuits only): compile and export a CNOT, then simulate
+# 3. simulate a block graph with TQEC (small circuits only): compile and export a CNOT, then simulate
 uv run prog.py -f CNOT -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0
 uv run 2tqec.py -f CNOT
 uv run python -m topols.tools.pipe_sim -f CNOT   # result/simulation/CNOT_*.html, CNOT_lep_*.png
@@ -153,10 +150,14 @@ wall-clock budget.
 
 ```bash
 cd docs
-uv run exp.py
+uv run exp.py                  # all three configurations, several hours
+uv run exp.py full             # or any subset of: full part place
 ```
 
-## 🖼 Visualization and checks
+`exp.py` ends with a summary table (volume and compile time per benchmark
+and configuration), also written to `result/topols/summary.csv`.
+
+## 🖼 Visualization and simulation
 
 - `2tqec.py -f NAME -p True` — static image of the pipe diagram
   (`result/visualization/NAME.png`); `-i True` — interactive HTML
@@ -165,16 +166,12 @@ uv run exp.py
   a pipe marks a colour change (a Hadamard).
 - `python -m topols.tools.viz_region -f NAME --xmin .. --xmax .. --ymin .. --ymax .. --zmin .. --zmax .. -o OUT` —
   interactive rendering of one region of a large diagram, with node ids.
-- `python -m topols.tools.hadamard_check -f NAME -b N` — verifies that the
-  number of colour changes rendered equals the number of Hadamard gates in
-  the circuit (after cancelling adjacent H·H pairs). Use the same `-b`,
-  `-zx`, `-sp` as the compile.
 - `python -m topols.tools.pipe_sim -f NAME` — rebuilds the exported
   `.bgraph` as a TQEC `BlockGraph` and simulates it with sinter
   (`result/simulation/`).
 
-All three read `benchmark/` and `result/` relative to the current
-directory, so run them from `docs/`.
+Both read `result/` relative to the current directory, so run them from
+`docs/`.
 
 ## 🔗 Operates with TQEC
 

@@ -4,9 +4,8 @@
 `prepare_graph` performs every graph-level step in order (parse, Hadamard
 boxing, simplification, block partitioning, ZX optimisation, Hadamard
 dissolution, layering, idle insertion, port alignment) and returns them in
-a `PreparedGraph`. Both the compile driver (`docs/prog.py`) and the
-Hadamard safety check (`topols.tools.hadamard_check`) use it, so the two
-always see the same diagram.
+a `PreparedGraph` for `topols.driver.operation`; `docs/prog.py` is a thin
+command-line front end on top of it.
 """
 
 from dataclasses import dataclass, field
@@ -134,28 +133,3 @@ def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1, spread_num=
         h_table=h_table, io_info=extract_io_nodes(graph),
     )
 
-
-def expected_hadamard_count(prepared):
-    """Number of Hadamards the compiled diagram must show as colour changes.
-
-    Adjacent Hadamards cancel (H*H = I), so a run of k boxes counts as one
-    Hadamard when k is odd and none when k is even. Dissolved runs are the
-    entries of `prepared.hadamard_edges` (already collapsed per run); boxes
-    kept as cubes on output-port wires are counted here per odd run.
-    """
-    graph = prepared.graph
-    boxes = {v for v in graph.vertices() if graph.type(v) == zx.VertexType.H_BOX}
-    seen, kept = set(), 0
-    for v in boxes:
-        if v in seen:
-            continue
-        chain, stack = set(), [v]
-        while stack:
-            x = stack.pop()
-            if x in chain:
-                continue
-            chain.add(x)
-            stack.extend(n for n in graph.neighbors(x) if n in boxes and n not in chain)
-        seen |= chain
-        kept += len(chain) % 2
-    return len(prepared.hadamard_edges) + kept, kept

@@ -43,7 +43,7 @@ ZX diagram ──► zx_transform ──► layered ZX diagram ──► embeddi
 
 | module | role |
 |---|---|
-| `pipeline.py` | `prepare_graph`: QASM file → simplified, layered ZX diagram (`PreparedGraph`), the front end shared by `docs/prog.py` and the Hadamard check |
+| `pipeline.py` | `prepare_graph`: QASM file → simplified, layered ZX diagram (`PreparedGraph`), the front end used by `docs/prog.py` |
 | `zx_transform/simplify.py` | ZX simplification: spider fusion (`zx_optimization`), `hadamard_box` / `dissolve_hadamard_boxes`, `delete_singular_nodes` |
 | `zx_transform/partition.py` | topology-aware slicing of the circuit into blocks (`find_block`, `circuit_slicing`) |
 | `zx_transform/layering.py` | layer indices (`layer_labeling`), idle insertion, per-layer connectivity (`layer_info`), output-port alignment |
@@ -57,7 +57,7 @@ ZX diagram ──► zx_transform ──► layered ZX diagram ──► embeddi
 | `routing/color_algebra.py` | how a cube's colour orientation evolves along a routed path (`edge_tracer`, `ORI_MAP`) and how to fix a mismatch (`color_switch`) |
 | `routing/boundary.py` | routing to the ceiling and to the boundary (T-gate exits) |
 | `export/bgraph.py` | pipe diagram → TQEC `BlockGraph` (`build_pipe_diagram`, `save_bigraph`) |
-| `tools/hadamard_check.py`, `tools/viz_region.py`, `tools/pipe_sim.py` | command-line tools on a compiled result: Hadamard safety check, cropped interactive rendering, TQEC/sinter simulation (`python -m topols.tools.<name>`) |
+| `tools/viz_region.py`, `tools/pipe_sim.py` | command-line tools on a compiled result: cropped interactive rendering, TQEC/sinter simulation (`python -m topols.tools.<name>`) |
 | `export/visualize.py`, `export/visualize_interactive.py` | matplotlib and Plotly renderers with identical colour conventions |
 | `geometry.py` | small vector helpers |
 

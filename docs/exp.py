@@ -1,61 +1,88 @@
+"""Reproduce the TopoLS rows of the paper's benchmark table.
+
+    python3 exp.py                 # all three configurations
+    python3 exp.py full part place # any subset, in this order
+
+Runs `prog.py` on the nine benchmarks in three configurations. Results are
+appended by `prog.py` to `result/topols/result_<config>.csv`; a summary
+table (volume, compile time) is printed at the end and written to
+`result/topols/summary.csv`.
+
+Configurations (the TopoLS rows of the table):
+    full   Full-Opt   -- partitioning and direction optimization
+    part   Part-Opt   -- partitioning only (-dir 0)
+    place  Place-Opt  -- direction optimization only (-b 5: small blocks)
+
+The configurations differ only in `-b` and `-dir`. `-s` / `-t` /
+`--backtrack` (seeds searched in parallel, seconds per MCTS call, and how
+many alternative previous-layer states a failed layer is retried from) are
+the per-benchmark values of README.md's table in every configuration.
+"""
+
+import csv
+import re
 import subprocess
+import sys
 
-# Full optimization (Full-Opt in the paper).
-#
-# -s / -t / --backtrack set the search budget per benchmark: seeds searched
-# in parallel, seconds per MCTS call, and how many alternative previous-layer
-# states a failed layer is retried from. Per-benchmark values were chosen so
-# that volume improves without a longer compile time than the uniform
-# `-s 2 -t 2` setting; see the table in README.md.
-commands_1 = [
-    "python3 prog.py -f bv_16 -b 20 -zx 1 -dir 1 -l 4 -r 1 -s 2 -t 2 -i 1000 -csv result_f -sp 0",
-    "python3 prog.py -f dj_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 8 -t 2 -i 1000 -csv result_f -sp 0 --backtrack 3",
-    "python3 prog.py -f grover_6 -b 20 -zx 1 -dir 1 -l 2 -r 0 -s 2 -t 2 -i 1000 -csv result_f -sp 0",
-    "python3 prog.py -f qft_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_f -sp 0",
-    "python3 prog.py -f qpe_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_f -sp 0",
-    "python3 prog.py -f vqe_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 4 -t 2 -i 1000 -csv result_f -sp 0 --backtrack 3",
-    "python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_f -sp 0 --backtrack 1",
-    "python3 prog.py -f wstate_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 8 -t 2 -i 1000 -csv result_f -sp 0 --backtrack 1",
-    "python3 prog.py -f qaoa_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 8 -t 2 -i 1000 -csv result_f -sp 0 --backtrack 3",
-]
+BENCHMARKS = ["bv_16", "dj_16", "grover_6", "qft_16", "qpe_16", "vqe_16", "ghz_16", "wstate_16", "qaoa_16"]
 
-for cmd in commands_1:
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+# Per-benchmark search budget (-r first seed, -s seeds, -t seconds per MCTS
+# call, -i iterations, --backtrack alternatives), used in every configuration.
+BUDGET = {
+    "bv_16":     "-r 1 -s 2 -t 2 -i 1000",
+    "dj_16":     "-r 0 -s 8 -t 2 -i 1000 --backtrack 3",
+    "grover_6":  "-r 0 -s 2 -t 2 -i 1000",
+    "qft_16":    "-r 0 -s 2 -t 2 -i 1000",
+    "qpe_16":    "-r 0 -s 2 -t 2 -i 1000",
+    "vqe_16":    "-r 0 -s 4 -t 2 -i 1000 --backtrack 3",
+    "ghz_16":    "-r 0 -s 2 -t 2 -i 1000 --backtrack 1",
+    "wstate_16": "-r 0 -s 8 -t 2 -i 1000 --backtrack 1",
+    "qaoa_16":   "-r 0 -s 8 -t 2 -i 1000 --backtrack 3",
+}
 
-# Direction optimization off
-commands_2 = [
-    "python3 prog.py -f bv_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f dj_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f grover_6 -b 20 -zx 1 -dir 0 -l 2 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f qft_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f qpe_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f vqe_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f wstate_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-    "python3 prog.py -f qaoa_16 -b 20 -zx 1 -dir 0 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_dir -sp 0",
-]
-
-for cmd in commands_2:
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+def qubits_per_row(name):
+    return 2 if name == "grover_6" else 4
 
 
-# # Block optimization off
-commands_3 = [
-    "python3 prog.py -f bv_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f dj_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f grover_6 -b 5 -zx 1 -dir 1 -l 2 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f qft_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f qpe_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f vqe_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f ghz_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f wstate_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-    "python3 prog.py -f qaoa_16 -b 5 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result_block -sp 0",
-]
-
-for cmd in commands_3:
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+# The three configurations differ only in block size and direction
+# optimization; the search budget is the tuned one in every configuration.
+CONFIGS = {
+    # name: (block size, -dir, csv name)
+    "full":  (20, 1, "result_f"),
+    "part":  (20, 0, "result_dir"),
+    "place": (5,  1, "result_block"),
+}
 
 
+def compile_command(config, benchmark):
+    block, dir_opt, csv_name = CONFIGS[config]
+    return (f"python3 prog.py -f {benchmark} -b {block} -zx 1 -dir {dir_opt} -l {qubits_per_row(benchmark)} "
+            f"{BUDGET[benchmark]} -csv {csv_name} -sp 0")
+
+
+def run(cmd):
+    """Run a shell command, echoing its output; return the output."""
+    print(f"Running: {cmd}", flush=True)
+    proc = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+    print(proc.stdout, end="", flush=True)
+    return proc.stdout
+
+
+def main(configs):
+    rows = []
+    for config in configs:
+        for benchmark in BENCHMARKS:
+            out = run(compile_command(config, benchmark))
+            volume = re.search(r"Space-time volume: ([\d.]+)", out).group(1)
+            seconds = re.search(r"Compilation time: ([\d.]+)", out).group(1)
+            rows.append((config, benchmark, int(float(volume)), round(float(seconds), 1)))
+
+    print(f"\n{'config':6s} {'benchmark':10s} {'volume':>8s} {'time(s)':>8s}")
+    for config, benchmark, volume, seconds in rows:
+        print(f"{config:6s} {benchmark:10s} {volume:8d} {seconds:8.1f}")
+    with open("result/topols/summary.csv", "a", newline="") as f:
+        csv.writer(f).writerows(rows)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:] or list(CONFIGS))
