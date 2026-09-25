@@ -96,13 +96,13 @@ def find_block_region(circuit, start_row, max_row, idx_to_row, max_block_size, s
 
     return [start_row, end_row]
 
-def find_block(circuit, max_block_size=10, dir_opt=1, spread_num=0, special_benchmark=False):
+def find_block(circuit, max_block_size=10, dir_opt=1, spread_num=0):
     """Partition a circuit into consecutive row blocks.
 
     Blocks are found greedily with `find_block_region` and capped at
     `max_block_size` rows; the very last row (the output boundaries)
-    always forms its own block. With `dir_opt=0`, `max_block_size=1` or
-    `special_benchmark=True` the first two rows form a fixed first block.
+    always forms its own block. With `dir_opt=0` or `max_block_size=1` the
+    first two rows form a fixed first block.
 
     Returns:
         `{block_index: [first_row_idx, last_row_idx]}`.
@@ -117,7 +117,7 @@ def find_block(circuit, max_block_size=10, dir_opt=1, spread_num=0, special_benc
     max_idx = max(idx_to_row.keys())
 
     block_info = {}
-    if dir_opt == 0 or max_block_size == 1 or special_benchmark:
+    if dir_opt == 0 or max_block_size == 1:
         block_info[0] = [0, 1]
         idx = 1
         start_row = 2

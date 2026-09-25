@@ -72,7 +72,7 @@ All scripts run from the `docs/` directory and read circuits from
 cd docs
 
 # 1. compile the 16-qubit GHZ circuit
-uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0 --backtrack 1
+uv run prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 --backtrack 1
 #    -> result/topols/ghz_16.pkl   (embedding)   result/topols/result.csv  (one row of metrics)
 
 # 2. export to TQEC and render
@@ -83,7 +83,7 @@ uv run 2tqec.py -f ghz_16 -i True      # result/visualization/ghz_16_interactive
 uv run python -m topols.tools.hadamard_check -f ghz_16 -b 20
 
 # 4. simulate a block graph with TQEC (small circuits only): compile and export a CNOT, then simulate
-uv run prog.py -f CNOT -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
+uv run prog.py -f CNOT -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0
 uv run 2tqec.py -f CNOT
 uv run python -m topols.tools.pipe_sim -f CNOT   # result/simulation/CNOT_*.html, CNOT_lep_*.png
 ```
@@ -115,7 +115,6 @@ in the `topols` package (`topols.pipeline.prepare_graph`,
 | `-i N` | maximum MCTS iterations per call |
 | `--backtrack K` | when a layer cannot be embedded from the best previous-layer state, retry it from up to K of the other seeds' previous-layer states before falling back to coarser strategies (0 = off) |
 | `-sp N` | for dense circuits: spread gates over rows so that no row holds more than N gates (0 = off) |
-| `-b0 0/1` | force the first row of the circuit to be its own block |
 | `-csv NAME` | append the metrics row to `result/topols/NAME.csv` |
 
 The search is *anytime*: for a fixed seed and starting state the sequence
@@ -146,7 +145,7 @@ longer compile time (measured one compile at a time, 16 cores):
 | vqe_16 | 3888 / 152 s | `-s 4 -t 2 --backtrack 3` | 3645 / 214 s |
 | wstate_16 | 8262 / 159 s | `-s 8 -t 2 --backtrack 1` | 8019 / 171 s |
 | qaoa_16 | 4941 / 261 s | `-s 8 -t 2 --backtrack 3` | **3969** / 230 s |
-| grover_6, qft_16, qpe_16 | — | `-s 2 -t 2` | 22785 / 592 s, 36207 / 1160 s, 39609 / 1321 s |
+| grover_6, qft_16, qpe_16 | — | `-s 2 -t 2` | 22785 / 592 s, 36369 / 1218 s, 39609 / 1321 s |
 
 Volumes are space–time volumes in units of surface-code cubes; wall times
 include compilation only. Run-to-run variation exists because `-t` is a
@@ -169,7 +168,7 @@ uv run exp.py
 - `python -m topols.tools.hadamard_check -f NAME -b N` — verifies that the
   number of colour changes rendered equals the number of Hadamard gates in
   the circuit (after cancelling adjacent H·H pairs). Use the same `-b`,
-  `-zx`, `-sp`, `-b0` as the compile.
+  `-zx`, `-sp` as the compile.
 - `python -m topols.tools.pipe_sim -f NAME` — rebuilds the exported
   `.bgraph` as a TQEC `BlockGraph` and simulates it with sinter
   (`result/simulation/`).
@@ -191,8 +190,9 @@ consume directly for simulation and resource evaluation.
 - **Magic states.** All magic-state gates are treated as T gates, since
   they share the same execution pattern in lattice surgery; translate other
   magic gates to T before compiling.
-- **Block reference issue.** If a compile fails with a block reference
-  error, `-b0 1` (first row as its own block) is a known workaround.
+- **Run-to-run variation.** `-t` is a wall-clock budget, so volumes can
+  differ slightly between runs and machines; the deterministic small
+  benchmarks (bv_16, dj_16, ghz_16) reproduce exactly.
 
 ## 📖 Citation
 

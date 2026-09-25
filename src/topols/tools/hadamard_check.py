@@ -7,8 +7,8 @@ started from, counts the Hadamards it must contain (after cancelling
 adjacent H*H pairs), counts the colour changes in the compiled result, and
 reports whether the two agree.
 
-Run after `prog.py`, from the same directory, with the same `-b`, `-zx`,
-`-sp` and `-b0`:
+Run after `prog.py`, from the same directory, with the same `-b`, `-zx` and
+`-sp`:
 
     python -m topols.tools.hadamard_check -f ghz_16 -b 20
 """
@@ -35,7 +35,7 @@ def count_color_transitions(bgraph_metadata, edge_metadata):
     return count
 
 
-def check(name, block_size_max=20, zx_opt=1, spread_num=0, initial_block=0,
+def check(name, block_size_max=20, zx_opt=1, spread_num=0,
           benchmark_dir="benchmark", result_dir="result/topols"):
     """Compare expected and rendered Hadamard counts for one compiled circuit.
 
@@ -46,7 +46,7 @@ def check(name, block_size_max=20, zx_opt=1, spread_num=0, initial_block=0,
     with open(qasm_path) as f:
         qasm_h_count = sum(1 for line in f if line.strip().startswith("h "))
     prepared = prepare_graph(qasm_path, block_size_max=block_size_max, zx_opt=zx_opt,
-                             dir_opt=1, spread_num=spread_num, initial_block=initial_block)
+                             dir_opt=1, spread_num=spread_num)
     expected, kept = expected_hadamard_count(prepared)
     rendered = count_color_transitions(*build_pipe_diagram(f"{result_dir}/{name}.pkl"))
     return expected, rendered, kept, qasm_h_count
@@ -61,11 +61,9 @@ def main(argv=None):
                         help="the -b the compile ran with")
     parser.add_argument("--zx_opt", "-zx", type=int, default=1, help="the -zx the compile ran with")
     parser.add_argument("--spread_num", "-sp", type=int, default=0, help="the -sp the compile ran with")
-    parser.add_argument("--initial_block", "-b0", type=int, default=0, help="the -b0 the compile ran with")
     args = parser.parse_args(argv)
 
-    expected, rendered, kept, qasm_h = check(args.file_name, args.block_size_max, args.zx_opt,
-                                             args.spread_num, args.initial_block)
+    expected, rendered, kept, qasm_h = check(args.file_name, args.block_size_max, args.zx_opt, args.spread_num)
     print(f"QASM H-gate count: {qasm_h}")
     print(f"H-boxes kept as cubes (on an output-port wire): {kept}")
     print(f"Expected collars (odd-length H runs, H*H=I cancelled): {expected}")

@@ -69,8 +69,7 @@ class PreparedGraph:
     io_info: dict = field(default_factory=dict)
 
 
-def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1,
-                  spread_num=0, initial_block=0):
+def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1, spread_num=0):
     """Build the layered ZX diagram of a circuit.
 
     Args:
@@ -81,7 +80,6 @@ def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1,
         spread_num: for dense circuits, spread gates so that no row holds
             more than this many; 0 = off (`-sp`). ZX optimisation is skipped
             when spreading is on.
-        initial_block: 1 to force the first row into its own block (`-b0`).
 
     Returns:
         A `PreparedGraph`.
@@ -100,8 +98,7 @@ def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1,
     # Consecutive row indices, block partition and per-vertex block index.
     rows = set(graph.row(v) for v in graph.vertices())
     idx_to_row = {idx: row for idx, row in enumerate(sorted(rows))}
-    block_info = find_block(circuit, max_block_size=block_size_max, dir_opt=dir_opt,
-                            spread_num=spread_num, special_benchmark=(initial_block == 1))
+    block_info = find_block(circuit, max_block_size=block_size_max, dir_opt=dir_opt, spread_num=spread_num)
     block_dic = circuit_slicing(graph, block_info, idx_to_row)
 
     if zx_opt == 1 and spread_num == 0:

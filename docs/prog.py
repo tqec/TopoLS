@@ -1,6 +1,6 @@
 """Compile a circuit into a lattice-surgery pipe diagram.
 
-    python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
+    python3 prog.py -f ghz_16 -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0
 
 Reads `benchmark/<name>.qasm`, writes the embedding to
 `result/topols/<name>.pkl` and appends one row of metrics to
@@ -44,8 +44,6 @@ parser.add_argument('--backtrack', type=int, default=0,
                          'up to K of the other seeds\' previous-layer states before falling back (0 = off)')
 parser.add_argument('--spread_num', '-sp', type=int, default=0,
                     help='dense circuits: spread gates so that no row holds more than N (0 = off)')
-parser.add_argument('--initial_block', '-b0', type=int, default=0,
-                    help='force the first row of the circuit to be its own block')
 args = parser.parse_args()
 
 file_name = args.file_name
@@ -53,8 +51,7 @@ print(f"Executing {file_name} benchmark.")
 
 # 1. Circuit -> simplified, layered ZX diagram.
 prep = prepare_graph(f"benchmark/{file_name}.qasm", block_size_max=args.block_size_max,
-                     zx_opt=args.zx_opt, dir_opt=args.dir_opt, spread_num=args.spread_num,
-                     initial_block=args.initial_block)
+                     zx_opt=args.zx_opt, dir_opt=args.dir_opt, spread_num=args.spread_num)
 print(prep.h_table.stats())
 
 # 2. Layer-by-layer 3D embedding.
