@@ -395,6 +395,10 @@ class EmbeddingState:
           5 T} and, for types 0/1/4/5, an orientation `embed_node_ori[node]`
           in {"i", "j", "k"}: the axis whose faces carry the odd colour (see
           `routing.color_algebra`).
+        * `inter_connect` is a tuple of edges in a fixed order (see
+          `layering.ordered_edges`); no routing decision may depend on the
+          iteration order of a set of node ids, which follows Python's
+          per-process hash seed for string ids.
         * A wire is a path, a tuple of adjacent cells; `embed_path` holds
           every path routed so far and `occupied` every cell in use.
         * Idles and boxes are not cubes: a chain of them is a single pipe.
@@ -628,12 +632,12 @@ class EmbeddingState:
 
         # Assign each output node to a ceiling port
         node_target_pairs = {}
-        available_nodes = set(self.output_connect.keys())
+        available_nodes = list(self.output_connect.keys())   # fixed order (dict order, not set order)
         available_targets = dict(port_loc)  # Copy of port_loc with indices
 
         # Pre-assign type-2 nodes to vertical ceiling targets if possible
         pre_process = []
-        for node in available_nodes.copy():
+        for node in list(available_nodes):
             if typ[node] == 2:
                 node_pos = pos[node]
                 if (node_pos[0], node_pos[1], ceiling_z) in available_targets.values():

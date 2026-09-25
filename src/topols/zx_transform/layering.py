@@ -447,14 +447,29 @@ def node_type_convert(graph, node):
     return -1  # unknown or unhandled
 
 
+def _node_key(x):
+    """Sort key that orders ints numerically and strings after them."""
+    return (0, x, "") if isinstance(x, int) else (1, 0, str(x))
+
+
+def ordered_edges(edges):
+    """Edges (pairs of node ids) as a tuple in a fixed order.
+
+    Node ids are ints in the main pipeline and strings in the fallback
+    (`<vertex>_<block>`); iterating a set of strings would follow Python's
+    per-process hash seed and make compiles irreproducible.
+    """
+    return tuple(sorted(edges, key=lambda e: (_node_key(e[0]), _node_key(e[1]))))
+
+
 def layer_info(graph, layer_labels, k):
     """Connectivity of layer `k`.
 
     Returns:
         `(input_connect, inter_connect, output_connect, node_type)`:
         `input_connect` maps each vertex of the layer to its neighbours in
-        layer k-1; `inter_connect` is the set of edges inside the layer
-        (sorted pairs); `output_connect` maps each vertex to its number of
+        layer k-1; `inter_connect` is the tuple of edges inside the layer
+        (sorted pairs, in a fixed order); `output_connect` maps each vertex to its number of
         neighbours in layer k+1; `node_type` maps each vertex to its type.
         Boundary vertices (type -1) are omitted.
     """
@@ -485,7 +500,7 @@ def layer_info(graph, layer_labels, k):
             node_output_connect[node] = output_count
             node_type[node] = node_type_convert(graph, node)
 
-    return node_input_connect, node_inter_connect, node_output_connect, node_type
+    return node_input_connect, ordered_edges(node_inter_connect), node_output_connect, node_type
 
 
 def layer_to_block_map(layer_labels, block_dic):

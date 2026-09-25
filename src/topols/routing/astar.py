@@ -20,7 +20,7 @@ WORK = [0]
 # second, and the fixed cost (in expansions) charged for one
 # EmbeddingState.next_state call on top of its A* work. A budget of `t`
 # seconds means `t * WORK_PER_SECOND` units of work on any machine.
-WORK_PER_SECOND = 210000
+WORK_PER_SECOND = 245000
 NEXT_STATE_COST = 3
 
 # Expansion caps of the A* variants (formerly 0.1 s and 1 ms wall-clock timeouts).

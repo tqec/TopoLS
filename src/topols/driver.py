@@ -18,6 +18,7 @@ from topols.embedding.ports import auto_ports, ceiling, seal_brute_frontier
 from topols.zx_transform.simplify import hadamard_box, delete_singular_nodes, spread_rows, dissolve_hadamard_boxes
 from topols.embedding.hadamard import HTable
 from topols.zx_transform.layering import (
+    ordered_edges,
     layer_labeling_block_vanilla,
     idling_nodes_insertion_block_vanilla,
     layer_info,
@@ -138,7 +139,7 @@ class _Frontier:
             x_min_floor=cfg.x_min_floor, x_max_floor=cfg.x_max_floor,
             y_min_floor=cfg.y_min_floor, y_max_floor=cfg.y_max_floor,
             idle_h_track=self.idle_h_track, idle_place=self.idle_place, t_track=self.t_track,
-            node_type={}, input_connect={}, inter_connect=set(), output_connect={},
+            node_type={}, input_connect={}, inter_connect=(), output_connect={},
             order=[], z_length=1, hadamard_edges=cfg.hadamard_edges,
         )
 
@@ -326,7 +327,7 @@ def _rename_layer(layer, suffix, rename_inputs):
     return (
         {f"{k}{suffix}": ([f"{v}{suffix}" for v in vals] if rename_inputs else vals)
          for k, vals in node_input_connect.items()},
-        {(f"{a}{suffix}", f"{b}{suffix}") for (a, b) in node_inter_connect},
+        ordered_edges((f"{a}{suffix}", f"{b}{suffix}") for (a, b) in node_inter_connect),
         {f"{k}{suffix}": v for k, v in node_output_connect.items()},
         {f"{k}{suffix}": v for k, v in node_type.items()},
     )
