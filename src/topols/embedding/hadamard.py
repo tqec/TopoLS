@@ -1,40 +1,28 @@
 """
-Hadamard as a property of the WIRE between two real nodes.
+Where Hadamards flip the colour of a wire.
 
-Design (user's, 2026-09-24, replacing the flag-on-an-edge / h_count model):
-an H is not attached to any particular idle edge and is not counted along
-a chain. Whenever routing connects two *real* nodes A and B -- directly, or
-by closing an idle chain whose recorded `start_node` is A -- ask one
-question: is there an odd number of H gates on the circuit wire strictly
-after A and up to B? That single lookup decides the `curr_type` flip.
+A Hadamard is a colour change along a pipe rather than a cube, so the
+compiler removes Hadamard boxes from the ZX diagram and records each one
+by circuit coordinates, `(qubit, row)`. Whenever routing connects two
+real (non-idle) nodes A and B on the same qubit wire -- directly, or by
+closing an idle chain that started at A -- `HTable.needs_flip(A, B)`
+answers one question: does an odd number of Hadamards lie on the wire
+strictly after A and up to B? If so the target colour is flipped before
+the consistency check.
 
-Why this is the right abstraction: the same physical H used to be given a
-flag in the outer (zx-optimised) graph AND in each fallback block's fresh
-reparse, in different id namespaces, moved by idling onto whichever
-segment came first, and transferred again at the j==1 block hand-off. Two
-flags for one H landed on one chain, `h_count` read 2, and the flip was
-skipped (qaoa_16, qubit 6 row 35). None of that machinery exists here:
-nothing is moved, nothing is transferred, nothing is counted.
+Because the answer depends only on circuit coordinates, it is the same in
+every part of the compiler. Node ids from different graphs (the outer
+zx-optimised graph, a re-layered block's graph with `_<block>` suffixes,
+renamed `_old` nodes) are all mapped back to `(qubit, row)` through the
+graph they belong to.
 
-Namespace independence comes from `(qubit, row)`: `hadamard_box` assigns
-an H_BOX's qubit and row from the pre-optimisation graph, so the outer
-graph and every fallback reparse agree on where each H is (measured
-bijective and unique on all nine benchmarks, docs/probe_h_identity.py).
-Real embedded nodes are mapped to `(qubit, row)` through whichever graph
-their id lives in: plain ids -> the outer graph, `_<block>` ids -> that
-block's graph_. `_old` (ceiling/basic rename) is stripped.
-
-Interval convention: an H's row is `max(row(u), row(v))` of its original
-neighbours, i.e. it sits at the row of the *later* real node when that
-node is its direct neighbour. So the wire (A, B] with row(A) < row(B)
-owns every H with row(A) < r <= row(B). A ceiling cube promoted from an
-idle has an interpolated row strictly between its neighbours, so an H
-falls into exactly one of the two sub-wires it splits -- counted once.
-
-A kept-as-cube H_BOX (rematerialize_stranded_hadamards) is a real node
-whose own row is midway to the port; `register_graph` snaps its row to
-the table row it stands for so that (A, box] owns that H and nothing
-after the box double-counts it.
+Interval convention: a Hadamard's row is the row of its later real
+neighbour, so the wire (A, B] with row(A) < row(B) owns every Hadamard
+with row(A) < r <= row(B). A cube promoted from an idle has an
+interpolated row strictly between its neighbours, so each Hadamard falls
+into exactly one of the two sub-wires and is counted once. A Hadamard
+kept as a box (rematerialize_stranded_hadamards) is registered at the row
+of the Hadamard it stands for.
 """
 
 import bisect
@@ -45,11 +33,25 @@ from topols.zx_transform.layering import node_type_convert
 
 
 def _strip(node_id):
+    """Node id as registered: the `_old` suffix of a lifted node is dropped."""
     s = str(node_id)
     return s[:-4] if s.endswith("_old") else s
 
 
 class HTable:
+    """Positions of the Hadamards of a circuit, queried by pairs of node ids.
+
+    Build with `from_graph` while the H boxes are still in the graph, then
+    `register_graph` (main pipeline) or `register_graph_labelled`
+    (re-layered fallback blocks) to map node ids to `(qubit, row)`.
+
+    Attributes:
+        rows_by_qubit: `{qubit: sorted rows of the Hadamards on that wire}`
+            (runs of adjacent boxes already cancelled pairwise).
+        cross: Hadamards whose two neighbours are on different qubits,
+            as `frozenset({(q1, r1), (q2, r2)})`.
+        qrow: `{str(node id): (qubit, row)}`.
+    """
     __slots__ = ("rows_by_qubit", "cross", "qrow")
 
     def __init__(self):
@@ -60,10 +62,14 @@ class HTable:
     # ------------------------------------------------------------ building
     @classmethod
     def from_graph(cls, graph):
-        """Call on a graph right after hadamard_box + delete_singular_nodes
-        (+ spread_rows) and BEFORE dissolve_hadamard_boxes: the H_BOX
-        vertices must still be present. Walks maximal H_BOX runs exactly
-        like dissolve does; an odd run is one H, an even run is a wire."""
+        """Read every Hadamard off `graph`.
+
+        Call after `hadamard_box` (+ `delete_singular_nodes`, `spread_rows`,
+        `zx_optimization`) and before `dissolve_hadamard_boxes`: the H_BOX
+        vertices must still be present. Maximal runs of adjacent boxes are
+        walked as `dissolve_hadamard_boxes` does; an odd run is one Hadamard
+        at the run's last row, an even run is a plain wire.
+        """
         t = cls()
         hbox = {v for v in graph.vertices() if graph.type(v) == zx.VertexType.H_BOX}
         seen = set()
@@ -95,10 +101,12 @@ class HTable:
         return t
 
     def register_graph(self, graph, suffix=""):
-        """Record (qubit, row) for every vertex of `graph`, under the id the
-        embedding will use (`f"{v}{suffix}"`). Call after idling +
-        rematerialize so inserted idles and restored H boxes are included.
-        `only` may restrict to labelled vertices (fallback blocks)."""
+        """Record `(qubit, row)` for every vertex of `graph` under the id the
+        embedding uses, `f"{v}{suffix}"`. Call after idle insertion and
+        `rematerialize_stranded_hadamards` so inserted idles and restored
+        boxes are included; a restored box is registered at the row of the
+        Hadamard it represents.
+        """
         for v in graph.vertices():
             key = f"{v}{suffix}"
             q, r = graph.qubit(v), graph.row(v)
@@ -115,11 +123,11 @@ class HTable:
             self.qrow[key] = (q, r)
 
     def register_graph_labelled(self, graph, layer_labels, suffix):
-        """Fallback variant: vertices with a layer label get the block
-        suffix (that is how driver.py renames them); unlabelled ones are
-        main-pipeline nodes and are NOT re-registered here -- their
-        (qubit, row) must come from the outer graph, since the fresh
-        reparse's ids do not coincide with the outer graph's."""
+        """`register_graph` for a re-layered block (gate-by-gate fallback):
+        only vertices with a layer label are registered, under
+        `f"{v}{suffix}"` as `driver.operation` names them. Unlabelled
+        vertices belong to the main pipeline and keep their existing entry.
+        """
         for v in graph.vertices():
             if layer_labels.get(v) is None:
                 continue
@@ -137,7 +145,11 @@ class HTable:
 
     # ------------------------------------------------------------ the question
     def needs_flip(self, a, b):
-        """Odd number of H gates on the wire between real nodes a and b?"""
+        """True iff the wire from real node `a` to real node `b` carries an odd
+        number of Hadamards (the interval `(min row, max row]` on their qubit,
+        or the recorded cross-qubit Hadamard when they differ in qubit).
+        Unknown ids give False.
+        """
         qa = self.qrow.get(_strip(a))
         qb = self.qrow.get(_strip(b))
         if qa is None or qb is None:
@@ -152,11 +164,10 @@ class HTable:
         return n % 2 == 1
 
     def needs_flip_to_end(self, a):
-        """Odd number of H gates on a's qubit strictly AFTER a? For the final
-        ceiling seal: the chain from real node `a` runs to the output port
-        and nothing further on that qubit will ever be embedded, so every
-        H after `a` belongs to this wire -- including one whose recorded
-        row is the port's own row, which no interpolated idle row reaches."""
+        """True iff an odd number of Hadamards lies on `a`'s qubit strictly
+        after `a`. Used by the final seal, where the wire from `a` runs to
+        the output port and owns every remaining Hadamard.
+        """
         qa = self.qrow.get(_strip(a))
         if qa is None:
             return False
@@ -165,10 +176,7 @@ class HTable:
             return False
         return (len(rows) - bisect.bisect_right(rows, qa[1])) % 2 == 1
 
-    def __contains__(self, _edge):
-        # legacy debug probes did `frozenset((a, b)) in hadamard_edges`
-        return False
-
     def stats(self):
+        """One-line summary of the table's contents."""
         return (f"HTable: {sum(len(v) for v in self.rows_by_qubit.values())} same-qubit H, "
                 f"{len(self.cross)} cross-qubit H, {len(self.qrow)} registered nodes")

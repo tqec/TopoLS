@@ -1,19 +1,26 @@
+"""Layering of a ZX diagram into time steps.
+
+A layer is one time step of the pipe diagram. `layer_labeling` assigns
+every vertex a layer by breadth-first search from the input boundaries,
+block by block; `idling_nodes_insertion` adds phase-0 Z spiders ("idles")
+on every wire that would skip a layer, so that consecutive layers are
+directly connected; `layer_info` extracts one layer's vertices, their
+connections to the previous layer and to each other, and their types.
+
+Node types (`node_type_convert`): 0 = Z spider, 1 = X spider, 2 = idle
+(phase-0 Z spider of degree 2), 3 = Hadamard box, 4 = S (phase pi/2),
+5 = T (phase pi/4).
+"""
+
 import pyzx as zx
 from collections import deque
 
-# ---------------------------------------------------------------------------
-# layer partitioning for ZX graphs
-# ---------------------------------------------------------------------------
 
 def _move_hadamard_flag(hadamard_edges, old_edge, new_edge):
-    """H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
-    entry): idling-node insertion splits one graph edge (u, v) into a
-    chain u - idle_1 - ... - idle_n - v. If (u, v) carried a dissolved
-    H-box (i.e. is in `hadamard_edges`), the flag has to move onto exactly
-    one of the new edges -- never both, and it doesn't matter which end,
-    per the color-algebra invariant that a single flip anywhere on the
-    chain reproduces the same net effect. `new_edge` should be the first
-    new edge created in the split (an arbitrary but fixed choice).
+    """Idle insertion splits an edge (u, v) into a chain u - idle_1 - ... - v.
+    If (u, v) carried a dissolved Hadamard, the flag moves onto exactly one
+    of the new edges (the first one; a single flip anywhere on the chain has
+    the same effect).
     """
     if hadamard_edges is None:
         return
@@ -23,9 +30,16 @@ def _move_hadamard_flag(hadamard_edges, old_edge, new_edge):
         hadamard_edges.add(frozenset(new_edge))
 
 def layer_labeling(graph, initial_nodes, block_dic):
-    """
-    Label layers block by block. The starting label for each block is the maximum label
-    in the previous block plus 1.
+    """Assign a layer to every vertex, block by block.
+
+    Within a block, layers are breadth-first distances from the block's
+    start vertices: `initial_nodes` for block 0, and for later blocks the
+    vertices adjacent to an already-labelled one. Each block starts at the
+    previous block's maximum layer + 1, so layers are consecutive across
+    the whole circuit.
+
+    Returns:
+        `{vertex: layer}`.
     """
     layer_labels = {}
     visited = set()
@@ -70,9 +84,11 @@ def layer_labeling(graph, initial_nodes, block_dic):
 
     return layer_labels
 
-# Define a function to label layers within a specific block range
 def layer_labeling_block(graph, block_range, initial_nodes=None):
-
+    """`layer_labeling` for the vertices whose row lies in
+    `block_range = [first_row, last_row]`, starting at layer 1 from
+    `initial_nodes` or from the vertices with a neighbour before the block.
+    Used while sizing blocks (`partition.find_block_region`)."""
     layer_labels = {}
     visited = set()
     max_label = 0
@@ -109,9 +125,12 @@ def layer_labeling_block(graph, block_range, initial_nodes=None):
 
     return layer_labels
 
-# Labeling row by row within a specific block range
 def layer_labeling_block_vanilla(graph, block_range):
-
+    """Row-by-row layering of a block: every distinct row inside
+    `block_range` becomes one layer, in row order, starting at 0. Used by
+    the gate-by-gate fallback, where the row before the block is layer 0
+    (the frontier already embedded) and the block's own rows are 1, 2, ...
+    """
     min_row, max_row = block_range
 
     # Get vertices in block range
@@ -121,20 +140,8 @@ def layer_labeling_block_vanilla(graph, block_range):
     # Get unique rows within block range and sort them
     block_rows = sorted(set(graph.row(v) for v in block_vertices))
 
-    # Create mapping from row to layer number, 0-indexed -- matching
-    # layer_labeling()'s convention (main pipeline: BFS starts at
-    # max_label=-1, so start_label=0, meaning boundary/input nodes get
-    # layer 0 and the first real gate layer is layer 1). This used to
-    # start at 1 (an off-by-one relative to that convention), which put
-    # the boundary nodes at layer 1 instead of layer 0 -- since layer_info()
-    # filters boundary nodes out (node_type_convert() == -1), layer 1
-    # would then have an empty node_output_connect, and driver.py's
-    # `for j in range(1, len(rows_)+1):` gate-by-gate loop would
-    # immediately hit the "no more output connections, finalize" branch on
-    # its very first iteration, silently truncating the entire rest of the
-    # block. Confirmed via direct diagnostic against qft_16's block
-    # [0, 7] -- see docs/ARCHITECTURE.md's bug list and
-    # docs/REFACTOR_LOG.md's dated entry.
+    # Row -> layer, 0-indexed like layer_labeling(): the block's inherited
+    # frontier row is layer 0 and the first row to embed is layer 1.
     row_to_layer = {row: idx for idx, row in enumerate(block_rows)}
 
     # Assign layer labels to vertices in block
@@ -150,11 +157,14 @@ def layer_labeling_block_vanilla(graph, block_range):
 # ---------------------------------------------------------------------------
 
 def idling_nodes_insertion(graph, layer_labels, hadamard_edges=None):
-    """
-    For every edge in the graph, if the layer labels of the two nodes are not consecutive,
-    insert idling nodes (green, phase 0) so that every neighbor pair has consecutive layers.
-    The row value of each idling node is uniformly spaced between the start and end node.
-    Modifies the graph and layer_labels in place.
+    """Insert idle spiders so that every edge joins consecutive layers.
+
+    An edge whose endpoints are k > 1 layers apart is replaced by a chain
+    of k - 1 phase-0 Z spiders on the same qubit, one per intermediate
+    layer, with rows interpolated between the endpoints. If the edge is in
+    `hadamard_edges` the flag moves to the first new edge.
+
+    Mutates `graph` and `layer_labels`; returns `layer_labels`.
     """
 
     # Collect all edges to process (avoid modifying graph while iterating)
@@ -201,9 +211,10 @@ def idling_nodes_insertion(graph, layer_labels, hadamard_edges=None):
     return layer_labels
 
 
-### Insert idling nodes to ensure consecutive layers within a specific block range
 def idling_nodes_insertion_block(graph, layer_labels, block_range):
-
+    """Block-sizing variant of `idling_nodes_insertion`: pads every edge that
+    leaves `block_range` towards later rows up to one layer past the block's
+    last layer, so that the block's open wires all end on the same layer."""
     max_layer = max(layer_labels.values())
     min_block_range = block_range[0]
     max_block_range = block_range[1]
@@ -266,9 +277,11 @@ def idling_nodes_insertion_block(graph, layer_labels, block_range):
     return layer_labels
 
 
-### Insert idling nodes to ensure consecutive layers within a specific block range vanilla
 def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range, hadamard_edges=None):
-
+    """`idling_nodes_insertion` for a block layered with
+    `layer_labeling_block_vanilla`: pads edges inside the block, edges
+    entering it (from layer 0) and edges leaving it (to one layer past the
+    block), moving Hadamard flags like the main variant."""
     max_layer = max(layer_labels.values())
     min_block_range = block_range[0]
     max_block_range = block_range[1]
@@ -412,11 +425,9 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range, hadam
     return layer_labels
 
 
-# ---------------------------------------------------------------------------
-# Miscellaneous functions for layer information extraction
-# ---------------------------------------------------------------------------
-
 def node_type_convert(graph, node):
+    """Embedding type of a vertex: 0 Z spider, 1 X spider, 2 idle, 3 Hadamard
+    box, 4 S, 5 T; -1 for anything else (boundaries)."""
     vtype = graph.type(node)
     phase = graph.phase(node)  # phase is stored as a rational multiplier of π
 
@@ -438,6 +449,16 @@ def node_type_convert(graph, node):
 
 
 def layer_info(graph, layer_labels, k):
+    """Connectivity of layer `k`.
+
+    Returns:
+        `(input_connect, inter_connect, output_connect, node_type)`:
+        `input_connect` maps each vertex of the layer to its neighbours in
+        layer k-1; `inter_connect` is the set of edges inside the layer
+        (sorted pairs); `output_connect` maps each vertex to its number of
+        neighbours in layer k+1; `node_type` maps each vertex to its type.
+        Boundary vertices (type -1) are omitted.
+    """
     node_input_connect = {}
     node_inter_connect = set()
     node_output_connect = {}
@@ -469,9 +490,7 @@ def layer_info(graph, layer_labels, k):
 
 
 def layer_to_block_map(layer_labels, block_dic):
-    """
-    Returns a dict: layer -> block_idx.
-    """
+    """Map every layer to the block its vertices belong to."""
     layer_to_block = {}
     for node, layer in layer_labels.items():
         block = block_dic[node]
@@ -480,9 +499,14 @@ def layer_to_block_map(layer_labels, block_dic):
 
 
 def extract_io_nodes(graph):
-    """
-    input: smallest-row node on each qubit
-    output: node that directly connects to the terminal (rightmost) node on the same qubit
+    """Input and output port vertices per qubit.
+
+    The input port is the smallest-row vertex of the qubit; the output port
+    is the vertex adjacent to the qubit's last (boundary) vertex, i.e. the
+    last embedded node of the wire.
+
+    Returns:
+        `{vertex: {"type": "input" | "output", "qubit": q}}`.
     """
     # find all nodes on each qubit
     per_qubit = {}
@@ -518,31 +542,16 @@ def extract_io_nodes(graph):
 
 
 def rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges):
-    """H-gate embedding optimization, correctness backstop (see
-    docs/REFACTOR_LOG.md's dated entry).
+    """Give a cube back to a Hadamard left on the wire into an output port.
 
-    `dissolve_hadamard_boxes` trades an H's cube for a flag on the edge it
-    sat on, which only works if something ever *routes* that edge. An edge
-    into a qubit's output port is never routed -- the boundary vertex has
-    `node_type_convert() == -1`, so `layer_info` drops it -- and a flag left
-    there is silently lost.
-
-    Most such flags are rescued automatically: idling-node insertion splits
-    the long run to the port and `_move_hadamard_flag` moves the flag onto
-    the first (routable) segment. That is why bv_16 (10 output-side H
-    gates), dj_16 (14) and vqe_16 render every collar with no help at all.
-    It only fails when the gap is already one layer, so no idle padding is
-    inserted -- measured on qaoa_4, where the flags on 31--37 and 30--39
-    stayed put and their collars vanished.
-
-    So: run this *after* idling insertion, when the rescues have happened,
-    and give a cube back to whatever is still stranded. Blanket-keeping
-    every output-side H-box instead is much worse -- it costs volume where
-    the rescue would have worked (bv_16 486 -> 729, dj_16 648 -> 810) and
-    even breaks cases that were already correct (vqe_16 82/82 -> 80/82).
-
-    Mutates `graph`, `layer_labels` and `hadamard_edges` in place. Returns
-    how many boxes were restored.
+    dissolve_hadamard_boxes turns each Hadamard into a flag on the edge it
+    sat on; the flag takes effect only when that edge is routed, and an edge
+    into an output boundary never is (boundaries are not embedded). Idle
+    insertion usually moves such a flag onto the first, routable segment of
+    the split wire; when the wire already spans a single layer no idle is
+    inserted and the Hadamard would be lost, so it is restored as a box.
+    Run after idle insertion. Mutates `graph`, `layer_labels` and
+    `hadamard_edges` in place; returns the number of boxes restored.
     """
     boundary_by_qubit = {}
     for v in graph.vertices():
@@ -577,16 +586,9 @@ def rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges):
                                 row=(graph.row(other) + graph.row(port)) / 2)
         graph.add_edge((other, hbox))
         graph.add_edge((hbox, port))
-        # The box needs a layer of its own *strictly between* `other` and the
-        # port. Giving it the port's layer instead leaves it with no
-        # next-layer neighbour, so `layer_info` reports `output_count == 0`
-        # for it, driver.py's "no more output connections" branch fires and
-        # returns -- the box never gets embedded at all (measured: qaoa_16's
-        # restored box 644 was absent from pos_hist entirely). Pushing the
-        # port one layer further restores exactly the shape `hadamard_box`
-        # produces when it runs before layering, which is what the
-        # pre-optimization pipeline embedded happily. The port is the end of
-        # its qubit's wire, so nothing downstream needs renumbering.
+        # The box needs its own layer strictly between `other` and the port,
+        # otherwise it has no next-layer neighbour and is never embedded. The
+        # port ends its wire, so pushing it one layer on renumbers nothing else.
         layer_labels[hbox] = other_layer + 1
         layer_labels[port] = other_layer + 2
         hadamard_edges.discard(edge)
@@ -596,26 +598,16 @@ def rematerialize_stranded_hadamards(graph, layer_labels, hadamard_edges):
 
 
 def align_output_ports(graph, layer_labels):
-    """Make every qubit's output port sit on the same, last layer.
+    """Put every qubit's output port on the same, last layer.
 
-    Why (2026-09-24, grover_6): the driver's final seal colours the chains
-    that are open in the LAST layer's state -- `reward()` builds
-    `ceiling_track` from that state's `output_connect`. Before
-    rematerialize_stranded_hadamards that was every qubit, because
-    layer_labeling puts all output boundaries on one final layer and idling
-    fills every gap. rematerialize pushes ONE qubit's port two layers on
-    (box at L+1, port at L+2), so the other qubits' last idles now sit in
-    layer L with nothing after them: they are not in layer L+1's state,
-    the seal never sees them, and their output ends stay colourless
-    (grover_6: 1263 and its box were sealed, the idle ends 3758/3743/3666/
-    3455 were not -- 4 of 100 collars lost). Restore the invariant: for
-    every port earlier than the latest one, insert idles on its wire up to
-    the last layer and move the port there.
-
-    Works for the fallback's block-scoped labelling too: ports whose wire
-    node is unlabelled (outside the block) are left alone; if no port is
-    labelled at all there is nothing to align. Mutates graph and
-    layer_labels in place; returns the number of idles inserted.
+    The final seal colours the wires that are still open in the last layer's
+    state. rematerialize_stranded_hadamards can push one qubit's port two
+    layers on, which would leave the other qubits' wires ending earlier and
+    therefore unsealed. For every port earlier than the latest one, insert
+    idles on its wire up to the last layer and move the port there. Ports
+    whose wire node is unlabelled (outside a block-scoped labelling) are
+    left alone. Mutates `graph` and `layer_labels` in place; returns the
+    number of idles inserted.
     """
     ports = []
     by_qubit = {}

@@ -1,21 +1,19 @@
+"""Conversion of a compiled embedding into a TQEC `BlockGraph`: path
+normalisation, idle merging, cube typing, and `.bgraph` export.
+"""
+
 import pickle
 from collections import Counter, defaultdict
 
 from topols.routing.color_algebra import ORI_MAP, _AXIS_MAP, edge_tracer
 
-# ---------------------------------------------------------------------------
-# Utility functions for result transform
-# ---------------------------------------------------------------------------
-
-# NOTE: ORI_MAP used to be redefined locally here (identical values) and a
-# second, separately-defined-but-identical _AXIS_MAP used to live inside
-# edge_process() below, shadowing the module-level import. Both are now the
-# single definitions in topols.routing.color_algebra -- see
-# docs/REFACTOR_LOG.md's "Phase 1a step 3" entry. No behavior change: same
-# tables, same values, verified before consolidating.
-
 def load_compilation_result(filename):
+    """Load a `result/topols/<name>.pkl` written by `docs/prog.py`.
 
+    Returns:
+        `(pos, ori, type_hist, paths, io_info)`: node positions,
+        orientations, types, routed paths and port info.
+    """
     with open(filename, "rb") as file:
         data = pickle.load(file)
 
@@ -28,21 +26,22 @@ def load_compilation_result(filename):
     return pos, ori, type_hist, paths, io_info
 
 def normalize_path(path):
-    """
-    tuple of (int, int, int)
-    """
+    """Path as a tuple of integer `(x, y, z)` tuples."""
     return tuple(
         tuple(int(x) for x in node)
         for node in path
     )
 
 def normalize_paths(paths):
+    """`normalize_path` for every path."""
     return [normalize_path(p) for p in paths]
 
 def has_duplicate_paths(paths):
+    """True iff some path occurs twice (same direction)."""
     return len(paths) != len(set(paths))
 
 def find_duplicate_paths(paths):
+    """`{path: count}` for the paths that occur more than once."""
     counter = Counter(paths)
     return {p: c for p, c in counter.items() if c > 1}
 
@@ -67,6 +66,13 @@ def remove_duplicate_paths(paths):
     return unique_paths
 
 def merge_idle_paths(paths, position_info, type_info):
+    """Join the two paths meeting at every idle or Hadamard-box node.
+
+    Idles (type 2) and Hadamard boxes (type 3) are not cubes in the pipe
+    diagram: the pipe simply runs through their position. Whenever exactly
+    two paths end at such a node they are concatenated into one path through
+    it. Returns the new list of paths (tuples).
+    """
     # Reverse lookup for position -> node ID
     pos_to_node = {v: k for k, v in position_info.items()}
 
@@ -112,6 +118,13 @@ def merge_idle_paths(paths, position_info, type_info):
     return merged_paths
 
 def build_tqec_type(ori, type):
+    """TQEC cube type string for every real node.
+
+    A cube's three letters give the boundary type on its x, y and z faces.
+    The axis equal to the node's orientation carries the odd colour: X for
+    an X spider (type 1), Z otherwise; the other two axes the opposite.
+    Idles and boxes (types 2, 3) get no cube.
+    """
     tqec_type = {}
     axes = ['i', 'j', 'k']
 
@@ -132,6 +145,8 @@ def build_tqec_type(ori, type):
     return tqec_type
 
 def combine_metadata(position_info, tqec_type, io_info):
+    """Per-node metadata `{"position", "tqec", "other"}` for every typed
+    node; `other` is the port info from `io_info` or None."""
     combined = {}
     for node in position_info:
         if node in tqec_type:
@@ -143,6 +158,7 @@ def combine_metadata(position_info, tqec_type, io_info):
     return combined
 
 def build_occupied_positions(pos_hist, paths):
+    """Set of every grid cell used by a node or a path."""
     occupied = set()
 
     for pos in pos_hist.values():
@@ -155,11 +171,12 @@ def build_occupied_positions(pos_hist, paths):
     return occupied
 
 def extend_path_for_t(path, fixed_at_start, occupied, schedule_t):
-    """
-    path: tuple of positions
-    fixed_at_start: bool
-        True  -> path[0] is the type-5 node
-        False -> path[-1] is the type-5 node
+    """Extend a T-gate exit path straight on until `schedule_t` free cells
+    lie below its new end, and append that vertical drop.
+
+    `fixed_at_start` says which end is the T node (`path[0]` if True,
+    `path[-1]` otherwise). Returns `(extended_path, drop_cells)` or None if
+    the extension hits an occupied cell.
     """
 
     path = list(path)
@@ -435,7 +452,11 @@ def add_missing_endpoint_nodes(paths, pos_hist, type_hist, bgraph_metadata):
         }
 
 def get_edge(pos, paths):
+    """Key every path by the node ids at its two ends.
 
+    Returns:
+        `({(start_node, end_node): path}, {position: node})`.
+    """
     pos_to_node = {v: k for k, v in pos.items()}
 
     # build path dictionary
@@ -453,6 +474,9 @@ def get_edge(pos, paths):
     return edge_data, pos_to_node
 
 def build_tqec_type_edge(ori, type, last_dir, next_dir):
+    """TQEC type of a pipe cell: the cube colouring `(ori, type)` at that
+    point, with the face along the incoming axis `last_dir` adjusted for
+    whether the pipe goes straight on or bends into `next_dir`."""
     axes = ['i', 'j', 'k']
 
     tqec = []
@@ -476,7 +500,17 @@ def build_tqec_type_edge(ori, type, last_dir, next_dir):
 
 
 def edge_process(edge_data, bgraph_metadata, pos_to_node, ori, type, t_nodes):
+    """Split every multi-cell path into unit pipes.
 
+    Each interior cell of a path becomes a synthetic node `path_<i>_<k>` in
+    `bgraph_metadata`, typed by tracing the colour from the path's real
+    start node (`edge_tracer`); cells listed in `t_nodes` are T-injection
+    points. Paths are oriented to start at a real node.
+
+    Returns:
+        `(bgraph_metadata, edge_metadata)` with
+        `edge_metadata = {(node_a, node_b): (pos_a, pos_b)}` per unit pipe.
+    """
     edge_metadata = {}
 
     for i, key in enumerate(edge_data):
@@ -527,12 +561,6 @@ def find_duplicate_geometric_edges(edge_metadata):
             key   -> frozenset({p1, p2})
             value -> list of edge_metadata keys that map to this geometry
     """
-    # P4 fix (unified debugging pass, 2026-09-22 -- see docs/ARCHITECTURE.md's
-    # bug list and docs/REFACTOR_LOG.md's dated entry): `defaultdict` used
-    # to be missing its import, so this function always raised `NameError`
-    # if called. Confirmed (repo-wide grep) that nothing calls it anywhere,
-    # so this was latent and harmless -- fixed the import anyway now that
-    # we're in the unified debugging pass.
     geom_map = defaultdict(list)
 
     for edge_key, (p1, p2) in edge_metadata.items():
@@ -572,7 +600,8 @@ def remove_duplicate_geometric_edges(edge_metadata):
     return cleaned
 
 def save_bigraph(filename, bgraph_metadata, edge_metadata):
-
+    """Pickle `{"bgraph_metadata", "edge_metadata"}` to a `.bgraph` file
+    (read back by `topols.tools.pipe_sim`)."""
     data = {
         "bgraph_metadata": bgraph_metadata,
         "edge_metadata": edge_metadata,
@@ -580,3 +609,34 @@ def save_bigraph(filename, bgraph_metadata, edge_metadata):
 
     with open(filename, "wb") as f:
         pickle.dump(data, f)
+
+
+def build_pipe_diagram(pkl_path):
+    """Turn a saved compilation result into TQEC block-graph metadata.
+
+    Loads `result/topols/<name>.pkl` as written by `docs/prog.py`, cleans the
+    routed paths (normalisation, duplicate removal, idle merging), assigns
+    TQEC cube types from orientations, restores any missing path endpoints
+    and splits paths into unit pipes.
+
+    Returns:
+        `(bgraph_metadata, edge_metadata)`: `bgraph_metadata` maps node id
+        -> `{"position": (x, y, z), "tqec": cube type, "other": port info}`;
+        `edge_metadata` maps `(node1, node2)` -> `(pos1, pos2)` for every
+        pipe. `save_bigraph` writes both to a `.bgraph` file.
+    """
+    pos, ori, type_hist, paths, io_info = load_compilation_result(pkl_path)
+    paths = normalize_paths(paths)
+    paths = remove_duplicate_paths(paths)
+    paths = merge_idle_paths(paths, pos, type_hist)
+    paths = remove_duplicate_paths(paths)
+    tqec_type = build_tqec_type(ori, type_hist)
+    bgraph_metadata = combine_metadata(pos, tqec_type, io_info)
+    paths, _invalid, t_nodes = check_paths_endpoints(paths=paths, pos_hist=pos,
+                                                     type_hist=type_hist, schedule_t=0)
+    add_missing_endpoint_nodes(paths, pos, type_hist, bgraph_metadata)
+    edge_data, pos_to_node = get_edge(pos, paths)
+    bgraph_metadata, edge_metadata = edge_process(edge_data, bgraph_metadata, pos_to_node,
+                                                  ori, type_hist, t_nodes)
+    edge_metadata = remove_duplicate_geometric_edges(edge_metadata)
+    return bgraph_metadata, edge_metadata

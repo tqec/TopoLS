@@ -1,9 +1,0 @@
-bv_16        x=9.0   y=9.0   z=6     vol=486.0    time=14    s  H=21/21 SAFETY CHECK PASSED viz=ok  ok
-dj_16        x=9.0   y=9.0   z=8     vol=648.0    time=16    s  H=31/31 SAFETY CHECK PASSED viz=ok  ok
-grover_6     x=5.0   y=7.0   z=627   vol=21945.0  time=659   s  H=101/104 SAFETY CHECK FAILED viz=ok  ok
-qft_16       x=9.0   y=9.0   z=460   vol=37260.0  time=1280  s  H=346/392 SAFETY CHECK FAILED viz=ok  ok
-qpe_16       x=9.0   y=9.0   z=484   vol=39204.0  time=1241  s  H=398/443 SAFETY CHECK FAILED viz=ok  ok
-vqe_16       x=9.0   y=9.0   z=47    vol=3807.0   time=162   s  H=81/84 SAFETY CHECK FAILED viz=ok  ok
-ghz_16       x=9.0   y=9.0   z=12    vol=972.0    time=61    s  H=1/1 SAFETY CHECK PASSED viz=ok  ok
-wstate_16    x=9.0   y=9.0   z=102   vol=8262.0   time=145   s  H=74/74 SAFETY CHECK PASSED viz=ok  ok
-qaoa_16      x=9.0   y=9.0   z=58    vol=4698.0   time=237   s  H=44/48 SAFETY CHECK FAILED viz=ok  ok

@@ -1,33 +1,0 @@
-  0%|          | 0/408 [00:00<?, ?it/s]  0%|          | 1/408 [00:00<01:06,  6.10it/s]  0%|          | 2/408 [00:00<01:37,  4.17it/s]  0%|          | 2/408 [00:16<54:18,  8.03s/it]
-multiprocessing.pool.RemoteTraceback: 
-"""
-Traceback (most recent call last):
-  File "/usr/lib/python3.10/multiprocessing/pool.py", line 125, in worker
-    result = (True, func(*args, **kwds))
-  File "/usr/lib/python3.10/multiprocessing/pool.py", line 51, in starmapstar
-    return list(itertools.starmap(args[0], args[1]))
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/driver.py", line 36, in _mcts_worker
-    return mcts(root_state, iters=iters, time_limit=time_limit, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=layer, length=length)
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/embedding/mcts.py", line 173, in mcts
-    reward = rollout(node.state, layer=layer, block_switch=block_switch, ceiling_switch=ceiling_switch, length=length)
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/embedding/mcts.py", line 79, in rollout
-    result = cur.reward(layer=layer, length=length)
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/embedding/state.py", line 511, in reward
-    x_min = min(xs)
-ValueError: min() arg is an empty sequence
-"""
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/junyuzh/QEC/upgrade/TopoLS/docs/prog.py", line 151, in <module>
-    best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num)
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/driver.py", line 709, in operation
-    for best_state_ in _run_seeds_parallel(jobs):
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/driver.py", line 105, in _run_seeds_parallel
-    return pool.starmap(_mcts_worker, jobs)
-  File "/usr/lib/python3.10/multiprocessing/pool.py", line 375, in starmap
-    return self._map_async(func, iterable, starmapstar, chunksize).get()
-  File "/usr/lib/python3.10/multiprocessing/pool.py", line 774, in get
-    raise self._value
-ValueError: min() arg is an empty sequence

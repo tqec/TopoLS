@@ -1,8 +1,0 @@
-Executing qaoa_4 benchmark.
-Embedding progress:
-x_length: 9.0 y_length: 3.0 z_length: 13
-Space-time volume: 351.0
-Time: 13
-Space: 27.0
-Compilation time: 33.83953905105591
-Interactive pipe diagram written to: result/visualization/qaoa_4_interactive.html

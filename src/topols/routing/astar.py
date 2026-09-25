@@ -5,14 +5,9 @@ import time
 # Shortest Manhattan path avoiding occupied cells (A* with tie‑breaking)
 # ---------------------------------------------------------------------------
 #
-# Tier 1 (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry): `add()`/
-# `manhattan()` (topols/geometry.py) are inlined directly in the loops below
-# instead of imported and called. Both are one-line tuple-arithmetic
-# functions with no side effects; profiling (docs/profiles/dj_16_full.svg,
-# docs/profiles/grover_6_prod.svg) showed them consuming ~12-15% of total
-# runtime purely from Python function-call overhead, since these three A*
-# variants are the single most-called code path in the whole compiler.
-# Identical arithmetic, just no call frame -- behavior-preserving.
+# The vector arithmetic (`add`, `manhattan` from topols.geometry) is inlined
+# in the loops below: these three variants are the most-called code in the
+# compiler and the call overhead was measurable.
 
 directions = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]
 
@@ -58,13 +53,9 @@ def shortest_path_with_zmax(
         # Expand node with lowest estimated total cost
         f, g, p, parent = heapq.heappop(open_q)
 
-        # P1 fix (unified debugging pass -- see docs/ARCHITECTURE.md's bug
-        # list and docs/REFACTOR_LOG.md's dated entry): lazy deletion means
-        # a node can have multiple stale queue entries once a cheaper path
-        # to it is found; `seen[p]` always holds the best known g for p
-        # (updated before any push), so a popped entry whose own g is worse
-        # is stale -- skip it instead of letting it overwrite `back[p]`
-        # with a worse parent or pay for a useless neighbor-relaxation pass.
+        # Lazy deletion: a cell may have stale heap entries once a cheaper
+        # path to it is found. `seen[p]` holds the best known g, so skip
+        # any popped entry that is worse than it.
         if g > seen[p]:
             continue
         back[p] = parent
@@ -173,8 +164,7 @@ def shortest_path(
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
 
-        # P1 fix -- see the matching comment in shortest_path_with_zmax and
-        # docs/REFACTOR_LOG.md's dated entry.
+        # Skip stale heap entries (see shortest_path_with_zmax).
         if g > seen[p]:
             continue
         back[p] = parent
@@ -270,8 +260,7 @@ def shortest_path_base(
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
 
-        # P1 fix -- see the matching comment in shortest_path_with_zmax and
-        # docs/REFACTOR_LOG.md's dated entry.
+        # Skip stale heap entries (see shortest_path_with_zmax).
         if g > seen[p]:
             continue
         back[p] = parent

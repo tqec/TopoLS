@@ -1,14 +1,10 @@
-import plotly.graph_objects as go
+"""Interactive (Plotly) rendering of a pipe diagram as a drag/rotate/zoom-able
+HTML file. Uses the same geometry and colour conventions as `visualize.py`
+(cube face order, port/S/T colours, split pipes with a yellow collar at a
+colour change), so both renderers show the same diagram.
+"""
 
-# ---------------------------------------------------------------------------
-# Interactive (Plotly) 3D visualization -- a drag/rotate/zoom-able HTML
-# counterpart to visualize.py's static Matplotlib renderer, added for the
-# Phase 2 debug-and-optimize pass (see docs/REFACTOR_LOG.md's dated entry).
-# Mirrors visualize.py's geometry and color-coding exactly (same cube face
-# order, same tqec/S/T/input-output color rules, same split-edge + yellow
-# "color transition" collar logic) so the two renderers show identical
-# diagrams -- this one just lets you actually grab and rotate it.
-# ---------------------------------------------------------------------------
+import plotly.graph_objects as go
 
 AXIS_COLOR = {
     "X": "red",
@@ -17,6 +13,7 @@ AXIS_COLOR = {
 
 
 def tqec_axis_colors(tqec):
+    """Face colour along each axis for a TQEC cube type such as `"XZZ"`."""
     return {
         "x": AXIS_COLOR[tqec[0]],
         "y": AXIS_COLOR[tqec[1]],
@@ -25,6 +22,8 @@ def tqec_axis_colors(tqec):
 
 
 def needs_color_transition(tqec1, tqec2, edge_axis):
+    """True iff two cubes joined by a pipe along `edge_axis` differ in colour
+    on a face perpendicular to the pipe (a Hadamard on the pipe)."""
     c1 = tqec_axis_colors(tqec1)
     c2 = tqec_axis_colors(tqec2)
     for axis in {"x", "y", "z"} - {edge_axis}:
@@ -34,6 +33,7 @@ def needs_color_transition(tqec1, tqec2, edge_axis):
 
 
 def edge_axis(p1, p2):
+    """Axis (`"x"`, `"y"` or `"z"`) of the unit step from `p1` to `p2`."""
     dx, dy, dz = (p2[i] - p1[i] for i in range(3))
     if abs(dx) == 1:
         return "x"
@@ -45,10 +45,12 @@ def edge_axis(p1, p2):
 
 
 def midpoint(a, b):
+    """Midpoint of two 3D points."""
     return tuple((a[i] + b[i]) / 2 for i in range(3))
 
 
 def edge_endpoints(p1, p2, cube_half):
+    """Start and end of the visible pipe between two cubes (cube faces excluded)."""
     dx, dy, dz = (p2[i] - p1[i] for i in range(3))
     if abs(dx) == 1:
         return (
@@ -68,6 +70,8 @@ def edge_endpoints(p1, p2, cube_half):
 
 
 def get_node_face_colors(node):
+    """Six face colours: grey for ports, green for S, purple for T, otherwise
+    red/blue by the cube's TQEC type."""
     other = node.get("other")
     tqec = node.get("tqec")
 
@@ -152,6 +156,7 @@ class _MeshAccumulator:
             self.edge_z.extend([za, zb, None])
 
     def to_mesh3d(self, name, opacity=1.0):
+        """All boxes as one `Mesh3d` trace (None if empty)."""
         if not self.x:
             return None
         return go.Mesh3d(
@@ -165,6 +170,7 @@ class _MeshAccumulator:
         )
 
     def to_wireframe(self, name, linewidth=1.5, color="black"):
+        """All box outlines as one `Scatter3d` line trace (None if empty)."""
         if not self.edge_x:
             return None
         return go.Scatter3d(
@@ -178,11 +184,13 @@ class _MeshAccumulator:
 
 
 def _add_node(acc, pos, size, colors):
+    """Add a cube of side `size`."""
     half = size / 2
     acc.add_prism(pos, (half, half, half), colors)
 
 
 def _add_edge_segment(acc, center, axis, length, thickness, colors):
+    """Add one pipe segment along `axis`."""
     l = length / 2
     t = thickness / 2
     if axis == "x":
@@ -195,6 +203,7 @@ def _add_edge_segment(acc, center, axis, length, thickness, colors):
 
 
 def _add_transition_band(acc, center, axis, edge_thickness, band_len, color="yellow", epsilon=0.02):
+    """Add the thin collar marking a colour change on a pipe."""
     t = (edge_thickness + epsilon) / 2
     l = band_len / 2
     if axis == "x":
@@ -207,6 +216,7 @@ def _add_transition_band(acc, center, axis, edge_thickness, band_len, color="yel
 
 
 def _add_connected_edge(acc, p1, p2, node1, node2, cube_size):
+    """Add the pipe between two adjacent nodes (see `visualize.draw_connected_edge`)."""
     cube_half = cube_size / 2
     edge_thickness = cube_size
 
@@ -245,16 +255,17 @@ def _add_connected_edge(acc, p1, p2, node1, node2, cube_size):
 
 def visualize_interactive(nodes, edges, benchmark, cube_size=0.4, pipe_thickness=0.18, out_path=None,
                           label_offset=None, label_size=11, leader_lines=False):
-    """Builds the same pipe diagram as visualize.py, as a single draggable/
-    rotatable/zoomable HTML file (Plotly, no server needed -- open directly
-    in a browser). Returns the output path.
+    """Write a pipe diagram (`bgraph_metadata`, `edge_metadata` from
+    `export.bgraph.build_pipe_diagram`) as a self-contained HTML file.
 
-    `label_offset=(dx, dy, dz)` moves every node-id label off the cube (the
-    default puts it just above, which for a dense region lands inside the
-    pipe to the next cube up); `leader_lines=True` draws a thin grey line
-    from each label back to its cube so the pairing stays unambiguous.
-    Both are for cropped debug views -- the full-diagram defaults are
-    unchanged."""
+    Every real node is labelled with its id (`path_*` pipe cells are not).
+    `label_offset=(dx, dy, dz)` moves the labels off the cubes and
+    `leader_lines=True` connects each label to its cube; both help when
+    viewing a dense crop (`topols.tools.viz_region`).
+
+    Returns:
+        The output path (default `result/visualization/<benchmark>_interactive.html`).
+    """
     node_acc = _MeshAccumulator()
     label_xs, label_ys, label_zs, label_text = [], [], [], []
     lead_x, lead_y, lead_z = [], [], []

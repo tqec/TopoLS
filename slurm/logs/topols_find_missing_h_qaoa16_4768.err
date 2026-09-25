@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/home/junyuzh/QEC/upgrade/TopoLS/docs/find_missing_h.py", line 213, in <module>
-    print("      " + describe(k))
-  File "/home/junyuzh/QEC/upgrade/TopoLS/docs/find_missing_h.py", line 149, in describe
-    return (f"{str(k):>10}  pos={pos_i[k]}  type={t} ({TYPE_NAME.get(t, '?')})  "
-KeyError: '84_3_t'

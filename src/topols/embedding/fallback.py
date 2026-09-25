@@ -1,17 +1,17 @@
+"""`basic_embedding`: deterministic brute-force layout of one layer, used when
+the search (and its ceiling / gate-by-gate retries) fails.
+"""
+
 from topols.routing.astar import shortest_path_base
 from topols.routing.boundary import lifting_path, vertical_z_path
 from topols.routing.color_algebra import ORI_MAP, edge_tracer
 from topols.embedding.state import _hadamard_step
 
-# ---------------------------------------------------------------------------
-# Basic Embedding Function
-# ---------------------------------------------------------------------------
-
-# This function performs a deterministic "baseline" embedding procedure
 import os as _os
 
 
 def _bf_mark(msg):
+    """Append a line to the file named by $TOPOLS_H_DEBUG, if set (debug aid)."""
     _p = _os.environ.get("TOPOLS_H_DEBUG")
     if _p:
         with open(_p, "a") as _fh:
@@ -19,7 +19,35 @@ def _bf_mark(msg):
 
 
 def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_h_track, idle_place, t_track, node_type, input_connect, inter_connect, output_connect, order, hadamard_edges):
+    """Embed one layer without search, always succeeding.
 
+    Every node of the layer is placed directly above its input port (the
+    previous-layer node it connects to) and the layer is built in three
+    steps at increasing height: (1) each intra-layer edge (a CNOT pair) is
+    routed at the lowest z where a horizontal path between the two columns
+    exists; (2) S and T nodes get their exit stub, T exits are routed to
+    the boundary; (3) idles and Hadamard boxes are placed on the ceiling.
+    Finally every real node `X` is stored as `X_old` with an idle stub `X`
+    above it at the ceiling, so that the next layer sees a flat frontier
+    (`ports.seal_brute_frontier` colours those stubs at the end).
+
+    Args:
+        embed_node_pos, embed_node_ori, embed_node_type, embed_path, occupied:
+            the previous layer's state (positions, orientations, types,
+            routed paths, occupied cells).
+        z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor:
+            the footprint; T exits leave through the boundary one cell
+            outside the x/y floors.
+        idle_h_track: `{idle: [origin, path, _]}` chain records; idle_place:
+            `{idle: position}`; t_track: `{T node: [exit, path, 0]}`.
+        node_type, input_connect, inter_connect, output_connect: the layer
+            (`layering.layer_info`); order: unused here.
+        hadamard_edges: `embedding.hadamard.HTable`.
+
+    Returns:
+        `(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
+        occupied, idle_h_track, idle_place, t_track)`, updated.
+    """
     # ------------------------------------------------------------
     # Initialize mutable containers
     # ------------------------------------------------------------
@@ -35,10 +63,7 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
     x_min, x_max = x_min_floor-1, x_max_floor+1
     y_min, y_max = y_min_floor-1, y_max_floor+1
 
-    # Consolidated from a local redefinition of the same table now in
-    # topols.routing.color_algebra.ORI_MAP -- see docs/REFACTOR_LOG.md.
-    # (ORI_MAP is imported at module level above; the body below resolves
-    # the bare name through that import.)
+    # ORI_MAP: topols.routing.color_algebra.ORI_MAP (module-level import).
 
     # Extract physical positions of qubit input ports
     qubit_pose = {}
@@ -137,26 +162,17 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                     if path_1 is not None:
                         tol_path = [(pos_1[0], pos_1[1], z_search)] + path_1 + [(pos_2[0], pos_2[1], z_search)]
                         if all((pt[0], pt[1], z_search+1) not in occupied for pt in tol_path):
-                            # P3 fix (unified debugging pass -- see
-                            # docs/ARCHITECTURE.md's bug list and
-                            # docs/REFACTOR_LOG.md's dated entry):
-                            # lifting_path() returns None when tol_path has
-                            # no corner to lift from (a perfectly straight
-                            # candidate); the code used to index into that
-                            # None unconditionally. Treat it the same as
-                            # the other candidate-rejection checks in this
-                            # loop (shortest_path_base returning None,
-                            # the occupancy check above) -- skip to the
-                            # next (target_1, target_2) candidate instead
-                            # of crashing.
+                            # lifting_path() returns None for a perfectly
+                            # straight candidate (no corner to lift from);
+                            # reject it like the other candidate checks.
                             tol_path = lifting_path(tol_path)
                             if tol_path is not None:
                                 embed_node_pos[f"{node1}_old"] = tol_path[0]
                                 embed_node_pos[f"{node2}_old"] = tol_path[-1]
                                 embed_node_type[f"{node1}_old"] = node_type[node1]
                                 embed_node_type[f"{node2}_old"] = node_type[node2]
-                                _bf_mark(f"place {node1}_old in={input_connect[node1][0]} hflag={frozenset((node1, input_connect[node1][0])) in hadamard_edges}")
-                                _bf_mark(f"place {node2}_old in={input_connect[node2][0]} hflag={frozenset((node2, input_connect[node2][0])) in hadamard_edges}")
+                                _bf_mark(f"place {node1}_old in={input_connect[node1][0]}")
+                                _bf_mark(f"place {node2}_old in={input_connect[node2][0]}")
                                 if node_type[node1] == 1:
                                     embed_node_ori[f"{node1}_old"] = 'j' if ori_1_blue == 'i' else 'i'
                                 else:
@@ -205,7 +221,7 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                     if ((target[0], target[1], z_search) not in occupied) and ((target[0], target[1], z_search+1) not in occupied):
                         embed_node_pos[f"{node}_old"] = (pos[0], pos[1], z_search)
                         embed_node_type[f"{node}_old"] = node_type[node]
-                        _bf_mark(f"place {node}_old in={input_connect[node][0]} hflag={frozenset((node, input_connect[node][0])) in hadamard_edges}")
+                        _bf_mark(f"place {node}_old in={input_connect[node][0]}")
                         embed_node_ori[f"{node}_old"] = ori_blue
                         path = [(pos[0], pos[1], z_search), (target[0], target[1], z_search), (target[0], target[1], z_search+1)]
                         path_v = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_search))
@@ -258,7 +274,7 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
                         path_v = vertical_z_path(qubit_pose[input_connect[node][0]], (pos[0], pos[1], z_search))
                         embed_node_pos[f"{node}_old"] = tol_path[0]
                         embed_node_type[f"{node}_old"] = node_type[node]
-                        _bf_mark(f"place {node}_old in={input_connect[node][0]} hflag={frozenset((node, input_connect[node][0])) in hadamard_edges}")
+                        _bf_mark(f"place {node}_old in={input_connect[node][0]}")
                         embed_node_ori[f"{node}_old"] = ori_blue
                         embed_path.append(tuple(tol_path)); embed_path.append(tuple(path_v))
                         t_track[f"{node}_old"] = [out_target, tol_path, 0]
@@ -274,11 +290,9 @@ def basic_embedding(embed_node_pos, embed_node_ori, embed_node_type, embed_path,
     _bf_mark("entered")
 
     z_ceil = max(value[2] for value in embed_node_pos.values())+2
-    # Idle / H-box nodes are placed straight on the ceiling. `z_ceil` is
-    # +2 so that an S/T node at +1 has room for its exit at +2; a layer
-    # with no S/T node has nothing at +1 and would leave an empty slab
-    # (measured: qaoa_16's two output-side H boxes sat at z=61 over an
-    # empty z=60, two cubes above every other qubit's output). Use +1 then.
+    # Idle / H-box nodes sit on the ceiling. `z_ceil` leaves room at +1 for
+    # an S/T node and at +2 for its exit; a layer with no S/T node has
+    # nothing at +1, so its idles go one level lower to avoid an empty slab.
     z_layer = z_ceil if any(node_type[n] in (4, 5) for n in input_connect) else z_ceil - 1
 
     for node in input_connect:

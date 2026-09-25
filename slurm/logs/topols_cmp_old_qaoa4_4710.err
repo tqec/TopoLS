@@ -1,8 +1,0 @@
-warning: `VIRTUAL_ENV=/home/junyuzh/QEC/upgrade/TopoLS/.venv` does not match the project environment path `/tmp/topols_old_compare/.venv` and will be ignored; use `--active` to target the active environment instead
-  0%|          | 0/7 [00:00<?, ?it/s] 14%|█▍        | 1/7 [00:00<00:01,  5.75it/s] 29%|██▊       | 2/7 [00:00<00:01,  2.71it/s] 43%|████▎     | 3/7 [00:04<00:07,  1.96s/it] 57%|█████▋    | 4/7 [00:33<00:38, 12.75s/it] 86%|████████▌ | 6/7 [00:33<00:05,  5.64s/it]
-warning: `VIRTUAL_ENV=/home/junyuzh/QEC/upgrade/TopoLS/.venv` does not match the project environment path `/tmp/topols_old_compare/.venv` and will be ignored; use `--active` to target the active environment instead
-warning: `VIRTUAL_ENV=/home/junyuzh/QEC/upgrade/TopoLS/.venv` does not match the project environment path `/tmp/topols_old_compare/.venv` and will be ignored; use `--active` to target the active environment instead
-Traceback (most recent call last):
-  File "/tmp/topols_old_compare/docs/check_hadamard_safety.py", line 64, in <module>
-    from topols.zx_transform.simplify import (
-ImportError: cannot import name 'dissolve_hadamard_boxes' from 'topols.zx_transform.simplify' (/tmp/topols_old_compare/src/topols/zx_transform/simplify.py)

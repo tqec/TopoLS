@@ -1,3 +1,7 @@
+"""Routing helpers for special targets: lifting a path off a corner, vertical
+segments, routing to the ceiling plane and T-gate exits to the boundary.
+"""
+
 from topols.routing.astar import shortest_path
 from topols.routing.color_algebra import AXIS_OFFSETS
 
@@ -143,21 +147,15 @@ def route_single_T_to_boundary(
     # If the exit has an orientation, block adjacent cells along that axis
     # to prevent immediate backtracking or invalid attachment
     if ori != 0:
-        # Consolidated from a local redefinition of the same table now in
-        # topols.routing.color_algebra.AXIS_OFFSETS -- see docs/REFACTOR_LOG.md.
+        # AXIS_OFFSETS: topols.routing.color_algebra.AXIS_OFFSETS.
         axis_offsets = AXIS_OFFSETS
         x, y, z = exit_point
         for dx, dy, dz in axis_offsets[ori]:
             occ_tmp.add((x + dx, y + dy, z + dz))
 
-    # Allow traversal into the exit point. This is hoisted out of the loop
-    # below (Tier 1 -- see docs/REFACTOR_LOG.md "Step 2c" entry): each
-    # `target` is already confirmed absent from `occ_tmp` by the `continue`
-    # check, so removing it there was always a no-op, and removing
-    # `exit_point` is idempotent across iterations -- the per-iteration
-    # `set(occ_tmp) - {exit_point, target}` copy was provably equivalent to
-    # doing this once. `shortest_path` never mutates its `occupied` arg, so
-    # the same set can be reused across all candidate targets.
+    # Allow traversal into the exit point. Every candidate `target` below is
+    # already unoccupied, and shortest_path never mutates `occupied`, so
+    # one shared copy serves all candidates.
     occ_tmp.discard(exit_point)
 
     # Try routing to each candidate boundary target

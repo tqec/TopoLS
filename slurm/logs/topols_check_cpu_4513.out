@@ -1,3 +1,0 @@
-os.cpu_count(): 192
-len(os.sched_getaffinity(0)): 4
-SLURM_CPUS_PER_TASK env: 4

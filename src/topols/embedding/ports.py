@@ -1,8 +1,14 @@
+"""Input ports of a block (`auto_ports`), lifting a finished layer to a common
+ceiling and sealing output ends (`ceiling`, `seal_brute_frontier`), and the
+space-time volume of an embedding.
+"""
+
 import math
 import os
 
 
 def _ceil_dbg(tag, key, extra="-"):
+    """Append a line to the file named by $TOPOLS_H_DEBUG, if set (debug aid)."""
     _p = os.environ.get("TOPOLS_H_DEBUG")
     if _p:
         with open(_p, "a") as _fh:
@@ -16,6 +22,12 @@ from topols.routing.boundary import vertical_z_path
 # ---------------------------------------------------------------------------
 
 def calculate_space_time(pos, paths, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
+    """Extents and space-time volume of an embedding.
+
+    x/y extents are the footprint fixed by the floor bounds (inclusive);
+    the z extent is measured from the cubes and paths. Returns
+    `(x_length, y_length, z_length, x_length * y_length * z_length)`.
+    """
     all_points = [coord for coord in pos.values()]
     all_points += [pt for path in paths for pt in path]
     _, _, zs = zip(*all_points)
@@ -27,9 +39,16 @@ def calculate_space_time(pos, paths, x_min_floor, x_max_floor, y_min_floor, y_ma
     return x_length, y_length, z_length, volume
 
 
-# Create the initial input-port locations for the embedding
 def auto_ports(num_qubits, z_level=0, edge_dist=2, length=2):
+    """Input ports of the first block, laid out on a 2D grid.
 
+    Qubit `i` gets a cube at `z_level`; `length` qubits per row, rows in
+    serpentine order, `edge_dist` cells between neighbours so that a pipe
+    fits in between. Every port starts with orientation `"i"` and type 0.
+
+    Returns:
+        `(positions, orientations, types)`, each keyed by qubit index.
+    """
     if length is None:
         length = math.ceil(num_qubits ** 0.5)
     width = math.ceil(num_qubits / length)
@@ -54,11 +73,31 @@ def auto_ports(num_qubits, z_level=0, edge_dist=2, length=2):
     return input_port_loc, input_port_ori, input_port_type
 
 
-# Re-wire all active output ports to the ceiling layer
 def ceiling(best_state, ceiling_track, node_type, final=False):
+    """Commit the lift of a finished layer to a common ceiling plane.
 
-    # Consolidated from a local redefinition of the same table now in
-    # topols.routing.color_algebra.ORI_MAP -- see docs/REFACTOR_LOG.md.
+    `EmbeddingState.reward` computes `ceiling_track`: for every node of
+    the layer that stays open, the vertical path to the ceiling and the
+    orientation/type its end must have. This function applies it to
+    `best_state`: the layer's nodes are renamed `<node>_old` and the
+    lifted ends become the new `<node>` entries (the next layer's input
+    ports), paths and occupancy are extended, and idle ends are recorded
+    in `idle_place` / `idle_h_track` so that their chain still knows the
+    real node it started from.
+
+    With `final=True` the lift is the compile's last step: every end is
+    given a definite colour (type 0), including the flip for a Hadamard
+    that sits between the last real node and the output port
+    (`HTable.needs_flip_to_end`). Without it, idle ends stay idle and the
+    next real node applies any Hadamard.
+
+    Args:
+        best_state: `EmbeddingState` to update (mutated and returned).
+        ceiling_track: `{node: {"path": [...], "ori": ..., "type": ...}}`.
+        node_type: `{node: type}` of the layer being lifted.
+        final: True for the final seal of the compile.
+    """
+    # ORI_MAP: topols.routing.color_algebra.ORI_MAP (module-level import).
     ori_map = ORI_MAP
 
     occ = set(best_state.occupied)
@@ -94,16 +133,10 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
             best_state.embed_node_ori[key] = ori
 
     if final:
-        # Wire-property H model, final seal of a REAL node with an open
-        # output: the lift `key_old -> key` IS this qubit's last wire, to
-        # the output port. If that wire carries an odd number of H (an H
-        # right before the port whose restored box was never embedded --
-        # grover_6's row-670 H sat in a layer the main loop never visited),
-        # the node's ceiling colour must flip. reward() computed
-        # ceiling_track[key]["ori"] without knowing that; redo its exact
-        # formula with curr_type flipped. Idle/H chains are handled in the
-        # idle branch below via needs_flip_to_end(start_node); non-final
-        # ceilings must not flip (the next real node applies the H).
+        # A real node whose lift ends at the output port: if the wire from
+        # the node to the port carries an odd number of Hadamards, the end
+        # colour computed by reward() must flip. Recompute its formula with
+        # the flipped type. Idle chains are handled in the branch below.
         for key, dic in ceiling_track.items():
             t0 = node_type.get(key)
             if t0 not in (0, 1, 4, 5) or "ori" not in dic:
@@ -149,8 +182,8 @@ def ceiling(best_state, ceiling_track, node_type, final=False):
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], 0))
                 else:
                     curr_type, last_dir = edge_tracer(tuple(tol_path)[::-1], (best_state.embed_node_ori[start_node], best_state.embed_node_type[start_node]))
-                # wire-property model, final seal: this chain runs from its
-                # origin to the output port, so it owns every H after the origin.
+                # The chain runs from its origin to the output port, so it
+                # owns every Hadamard after the origin.
                 if best_state.hadamard_edges.needs_flip_to_end(start_node):
                     curr_type = 1 - curr_type
                 ori = ori_map[(last_dir, curr_type, 0)]
@@ -209,8 +242,8 @@ def seal_brute_frontier(best_state):
     the stubs carry no orientation. The stubs are already at the top, so
     the seal is only the colour step of ceiling(final=True)'s idle branch:
     trace the chain from its origin, flip if the wire from the origin to
-    the output port carries an odd number of H (wire-property model), set
-    type 0. Mutates and returns best_state.
+    the output port carries an odd number of Hadamards, set type 0.
+    Mutates and returns best_state.
     """
     ori_map = ORI_MAP
     frontier = [key for key, (start_node, _p, _h) in best_state.idle_h_track.items()
@@ -219,12 +252,12 @@ def seal_brute_frontier(best_state):
     if not frontier:
         return best_state
 
-    # Like ceiling(), bring every output end to ONE ceiling: basic_embedding
-    # stacks layer by layer, so a qubit whose last layer was an H box ends
-    # higher than the others (measured: two ends at z=61, fourteen at z=59).
-    # Extend each lower stub straight up when the column is free; the
-    # extension is part of the same idle chain, so it is prepended to the
-    # chain path (which runs from the chain END back to its origin).
+    # Like ceiling(), bring every output end to one ceiling: basic_embedding
+    # stacks layer by layer, so a qubit whose last layer held a box may end
+    # higher than the others. Extend each lower stub straight up when the
+    # column is free; the extension belongs to the same idle chain, so it
+    # is prepended to the chain path (which runs from the chain end back
+    # to its origin).
     occ = set(best_state.occupied)
     z_top = max(best_state.embed_node_pos[k][2] for k in frontier)
     paths = list(best_state.embed_path)

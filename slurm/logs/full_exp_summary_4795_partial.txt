@@ -1,3 +1,0 @@
-bv_16        x=9.0   y=9.0   z=6     vol=486.0    time=13    s  H=21/21 SAFETY CHECK PASSED viz=ok  ok
-dj_16        x=9.0   y=9.0   z=8     vol=648.0    time=15    s  H=31/31 SAFETY CHECK PASSED viz=ok  ok
-grover_6     x=5.0   y=7.0   z=650   vol=22750.0  time=585   s  H=95/104 SAFETY CHECK FAILED viz=ok  ok

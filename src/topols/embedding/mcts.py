@@ -1,40 +1,28 @@
+"""Anytime Monte Carlo Tree Search over `EmbeddingState`s: UCT selection,
+greedy rollouts, and a best-so-far result within an iteration and
+wall-clock budget.
+"""
+
 import math
 import time
 
 # ---------------------------------------------------------------------------
-# Opt-in diagnostic hook (Phase 2, Step 2a -- see
-# /home/junyuzh/.claude/plans/snappy-growing-aurora.md and
-# docs/REFACTOR_LOG.md). Off by default (STATS_SINK is None): zero overhead,
-# zero behavior change for production runs. A diagnostic script sets
-# `topols.embedding.mcts.STATS_SINK = some_list` before calling `mcts()` to
-# record, per call, whether the loop was cut off by the wall-clock
-# `time_limit` ("search-bound") or exhausted its `iters` budget
-# ("iters-bound") -- this determines which benchmarks are safe to use as
-# exact-equality gates for optimizations that touch the timed loop.
+# Optional diagnostics: a caller may set STATS_SINK to a list to record, per
+# mcts() call, how many iterations completed and whether the wall-clock budget
+# or the iteration cap ended the search. None (the default) records nothing.
 STATS_SINK = None
 
-# Separate opt-in sink for the cache-hit-rate diagnostic below (kept apart
-# from STATS_SINK so the two don't get mixed into one list with
-# differently-shaped dicts -- profile_boundedness.py indexes STATS_SINK
-# entries by `["search_bound"]` unconditionally).
+# Separate opt-in sink for the reward-cache hit-rate diagnostic below.
 CACHE_STATS_SINK = None
 
-# Tier 1 in-loop reward-cache shortcut (Phase 2 -- see
-# docs/REFACTOR_LOG.md's "Step 2c, Tier 1 item 4" entry). Unlike Tier 0
-# below, this DOES skip work inside the timed loop (it avoids calling
-# rollout()/reward() again on an already-terminal node Selection revisits),
-# so it can change how many iterations complete before `time_limit` for
-# search-bound calls. Kept as a module toggle (default on) so a decoupled
-# A/B comparison can flip it off without needing two copies of the code --
-# see docs/profile_inloop_cache.py.
+# In-loop reward cache: when selection lands on a terminal node whose reward
+# is already known, reuse it instead of rerunning rollout()/reward(). A module
+# toggle so it can be switched off for comparisons.
 ENABLE_INLOOP_REWARD_CACHE = True
 
-# Tier 0 optimization (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry):
-# sentinel for "no cached reward yet" on a tree node. Must be a distinct
-# object, not `None` -- `EmbeddingState.reward()` legitimately returns
-# `None` for a terminal state whose ceiling/T-gate routing failed, so
-# overloading `None` as "not cached" would silently disable caching for
-# exactly the states that fail routing and get revisited.
+# Sentinel for "no cached reward yet". Distinct from None because reward()
+# legitimately returns None when a terminal state's ceiling or T-gate routing
+# fails, and those states must stay cacheable.
 _UNSET = object()
 
 # ---------------------------------------------------------------------------
@@ -42,6 +30,16 @@ _UNSET = object()
 # ---------------------------------------------------------------------------
 
 class MCTSNode:
+    """A node of the search tree.
+
+    Attributes:
+        state: the `EmbeddingState` at this node.
+        parent, children: tree links.
+        visits, value: visit count and summed backed-up reward (UCT statistics).
+        untried: moves of `state` not expanded yet (`EmbeddingState.moves`).
+        cached_reward: reward of `state` once known (terminal states only);
+            `_UNSET` until then.
+    """
     __slots__ = ("state","parent","children",
                  "visits","value","untried","try_flag", "id", "cached_reward")
 
@@ -55,6 +53,7 @@ class MCTSNode:
         self.cached_reward = _UNSET
 
     def uct_select_child(self, c=0.7):
+        """Child with the highest UCB1 score, `mean value + c * sqrt(ln N / n)`."""
         best = None
         best_ucb = -1e9
         for child in self.children:
@@ -71,7 +70,14 @@ class MCTSNode:
 # ---------------------------------------------------------------------------
 
 def rollout(state, max_steps=2000, obj=None, layer=None, block_switch=False, ceiling_switch=False, length=4):
+    """Complete `state` greedily: at every step take the move whose
+    resulting state has the smallest bounding-box volume.
 
+    Returns:
+        `(reward, terminal_state)` when the layer is completed and
+        `EmbeddingState.reward` succeeds; the scalar `-1e9` otherwise
+        (no legal move, a routing failure, or `max_steps` exhausted).
+    """
     cur = state
 
     for j in range(max_steps):
@@ -114,6 +120,31 @@ def rollout(state, max_steps=2000, obj=None, layer=None, block_switch=False, cei
 # ---------------------------------------------------------------------------
 
 def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, block_switch=False, ceiling_switch=False, layer=None, length=None):
+    """Search for the lowest-volume complete embedding of one layer.
+
+    Standard UCT loop (select, expand one child, greedy rollout, back up)
+    over `EmbeddingState`s, stopped by whichever of `iters` iterations or
+    `time_limit` seconds comes first. The search is *anytime*: for a fixed
+    random state and `root_state` the iteration sequence is deterministic,
+    and the result is the best complete state seen anywhere (in the tree
+    or in a rollout), so a larger budget never returns a worse state.
+
+    Args:
+        root_state: `EmbeddingState` with the previous layer embedded and
+            nothing of the current layer placed yet.
+        iters: maximum number of iterations.
+        time_limit: wall-clock budget in seconds (None = unlimited).
+        move_num: number of candidate placements generated per node
+            (`EmbeddingState.moves(num=...)`).
+        block_switch, ceiling_switch: passed to `moves`; the first block
+            of a compile and a search started from a lifted ceiling allow
+            different placements.
+        layer, length: forwarded to `EmbeddingState.reward`.
+
+    Returns:
+        The best terminal `EmbeddingState`, or None if no rollout completed
+        the layer.
+    """
     root = MCTSNode(root_state, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
     end_time = time.time() + (time_limit if time_limit else 1e9)
 
@@ -157,14 +188,8 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
         if (ENABLE_INLOOP_REWARD_CACHE
                 and node.cached_reward is not _UNSET
                 and node.state.is_terminal()):
-            # Tier 1 (see module docstring above): Selection walked back
-            # down to a terminal leaf whose reward we already computed on
-            # this exact, unmutated state object -- reuse it instead of
-            # paying for rollout()'s call into reward() again. Equivalent
-            # to what `rollout(node.state, ...)` would return (it would
-            # immediately hit `if cur.is_terminal(): return cur.reward(...)`
-            # with `cur is node.state`, unchanged), just without redoing
-            # the routing work.
+            # Selection reached a terminal node whose reward is already cached;
+            # rollout() would recompute exactly this value.
             reward = node.cached_reward
             rollout_state = node.state
             if CACHE_STATS_SINK is not None:
@@ -173,9 +198,7 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
             reward = rollout(node.state, layer=layer, block_switch=block_switch, ceiling_switch=ceiling_switch, length=length)
             if reward != -1e9:
                 reward, rollout_state = reward
-                # Tier 0: cache for the post-loop retrieval below (and, if
-                # enabled, for a future in-loop revisit) -- a plain
-                # attribute write, doesn't skip anything this iteration.
+                # Cache the reward for the post-loop retrieval and later revisits.
                 if node.state is rollout_state:
                     node.cached_reward = reward
             if CACHE_STATS_SINK is not None and node.state.is_terminal():
@@ -209,10 +232,7 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
     while stack:
         n = stack.pop()
         if n.state.is_terminal():
-            # Tier 0: reuse the reward cached during the loop above instead
-            # of recomputing it (reward() does real routing work -- this is
-            # strictly post-loop, so it cannot affect how many iterations
-            # ran).
+            # Reuse the cached reward (reward() does real routing work).
             if n.cached_reward is not _UNSET:
                 r_val = n.cached_reward
             else:
@@ -223,16 +243,11 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
                 best_state = n.state
         stack.extend(n.children)
 
-    # Return the best state seen ANYWHERE, not "a terminal node in the tree if
-    # one exists, else the best rollout". The tree only contains terminals
-    # that happened to be expanded, and the first one to appear is usually
-    # poor; `best_rollout_state` is the best over every rollout so far. The
-    # old preference for the tree terminal meant a LONGER search (deeper
-    # tree, first terminal appears) could return a worse state than a shorter
-    # one -- measured 2026-09-24: dj_16 648 at -t 2 but 1215 at -t 5 (job
-    # 4817). With max() over both, the result is the best-so-far of a
-    # deterministic iteration sequence, so more time / iterations / seeds can
-    # never return a worse state for the same (seed, state).
+    # Return the best state seen anywhere. The tree only holds the terminals
+    # that happened to be expanded (the first to appear is often poor), while
+    # best_rollout_state is the best over every rollout; taking the better of
+    # the two makes the result the best-so-far of a deterministic iteration
+    # sequence, so a longer budget can never return a worse state.
     if best_state is None or (best_rollout_state is not None and best_rollout > best_val):
         best_state = best_rollout_state
 

@@ -1,17 +1,19 @@
+"""Static Matplotlib rendering of a compiled pipe diagram (cubes coloured by
+boundary type, S/T gates, ports, and yellow colour-transition collars).
+"""
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------------
-# Visualization
-# ---------------------------------------------------------------------------
-
+# Face colour per boundary type.
 AXIS_COLOR = {
     "X": "red",
     "Z": "blue"
 }
 
 def tqec_axis_colors(tqec):
+    """Face colour along each axis for a TQEC cube type such as `"XZZ"`."""
     return {
         "x": AXIS_COLOR[tqec[0]],
         "y": AXIS_COLOR[tqec[1]],
@@ -19,6 +21,9 @@ def tqec_axis_colors(tqec):
     }
 
 def needs_color_transition(tqec1, tqec2, edge_axis):
+    """True iff two cubes joined by a pipe along `edge_axis` differ in colour
+    on a face perpendicular to the pipe, i.e. the pipe carries a Hadamard
+    (drawn as a yellow collar)."""
     c1 = tqec_axis_colors(tqec1)
     c2 = tqec_axis_colors(tqec2)
 
@@ -50,6 +55,7 @@ def draw_transition_band(ax, center, axis, edge_thickness, band_len, color="yell
     draw_prism(ax, center, dims, [color] * 6, edgecolor=color, lw=0.0)
 
 def edge_axis(p1, p2):
+    """Axis (`"x"`, `"y"` or `"z"`) of the unit step from `p1` to `p2`."""
     dx, dy, dz = (p2[i] - p1[i] for i in range(3))
     if abs(dx) == 1:
         return "x"
@@ -60,9 +66,12 @@ def edge_axis(p1, p2):
     raise ValueError("Invalid edge (not unit length)")
 
 def midpoint(a, b):
+    """Midpoint of two 3D points."""
     return tuple((a[i] + b[i]) / 2 for i in range(3))
 
 def draw_prism(ax, center, dims, face_colors, edgecolor="black", lw=0.2):
+    """Draw a box of half-extents `dims` with six face colours in the order
+    +X, -X, +Y, -Y, +Z, -Z."""
     x, y, z = center
     dx, dy, dz = dims
 
@@ -85,10 +94,12 @@ def draw_prism(ax, center, dims, face_colors, edgecolor="black", lw=0.2):
         )
 
 def draw_node(ax, pos, size, colors):
+    """Draw a cube of side `size`."""
     half = size / 2
     draw_prism(ax, pos, (half, half, half), colors)
 
 def draw_edge(ax, center, axis, length, thickness, colors):
+    """Draw one pipe segment along `axis`."""
     l = length / 2
     t = thickness / 2
 
@@ -107,6 +118,12 @@ def draw_connected_edge(
     node1, node2,
     cube_size
 ):
+    """Draw the pipe between two adjacent nodes.
+
+    Both typed: one pipe in their common colours, or two half pipes with a
+    yellow collar where the colours differ. One typed (S/T or port stub):
+    the pipe takes that node's colours. Neither typed: nothing is drawn.
+    """
     cube_half = cube_size / 2
     edge_thickness = cube_size
 
@@ -176,6 +193,7 @@ def draw_connected_edge(
         return
 
 def edge_endpoints(p1, p2, cube_half):
+    """Start and end of the visible pipe between two cubes (cube faces excluded)."""
     dx, dy, dz = (p2[i] - p1[i] for i in range(3))
 
     if abs(dx) == 1:
@@ -197,6 +215,8 @@ def edge_endpoints(p1, p2, cube_half):
         )
 
 def get_node_face_colors(node):
+    """Six face colours: grey for input/output ports, green for S, purple for
+    T, otherwise red/blue by the cube's TQEC type."""
     other = node.get("other")
     tqec = node.get("tqec")
 
@@ -227,6 +247,7 @@ def get_node_face_colors(node):
     return ["black"] * 6
 
 def set_axes_equal(ax):
+    """Equal scale on all three axes."""
     x_limits = ax.get_xlim3d()
     y_limits = ax.get_ylim3d()
     z_limits = ax.get_zlim3d()
@@ -248,6 +269,9 @@ def set_axes_equal(ax):
     ax.set_box_aspect([1, 1, 1])
 
 def visualize(nodes, edges, benchmark, cube_size=0.4, pipe_thickness=0.18, plot=False):
+    """Render a pipe diagram (`bgraph_metadata`, `edge_metadata` from
+    `export.bgraph.build_pipe_diagram`) with Matplotlib; with `plot=True`
+    the figure is saved to `result/visualization/<benchmark>.png`."""
     fig = plt.figure(figsize=(18, 18))
     ax = fig.add_subplot(111, projection="3d")
 

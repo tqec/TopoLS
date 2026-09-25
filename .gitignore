@@ -22,3 +22,8 @@ dist/
 
 .pytest_cache/
 .mypy_cache/
+# local development material (logs, diagnostics, notes) -- never published
+dev/
+slurm/
+docs/tutorial_executed.ipynb
+tests/

@@ -1,3 +1,7 @@
+"""Topology-aware slicing of a circuit into blocks of bounded size
+(`find_block`, `circuit_slicing`).
+"""
+
 from topols.zx_transform.simplify import (
     hadamard_box,
     delete_singular_nodes,
@@ -15,6 +19,15 @@ from topols.zx_transform.layering import (
 # ---------------------------------------------------------------------------
 
 def circuit_slicing(graph, block_info, idx_to_row):
+    """Assign every vertex to the block whose row range contains it.
+
+    Args:
+        block_info: `{block: [first_row_idx, last_row_idx]}` from `find_block`.
+        idx_to_row: consecutive row index -> pyzx row value.
+
+    Returns:
+        `{vertex: block}`.
+    """
     node_to_block = {}
     for v in graph.vertices():
         row = graph.row(v)
@@ -30,9 +43,18 @@ def circuit_slicing(graph, block_info, idx_to_row):
 # ---------------------------------------------------------------------------
 # Automated block finding for circuit slicing
 # ---------------------------------------------------------------------------
-# The region is given with respect to index, not absolute row value
 def find_block_region(circuit, start_row, max_row, idx_to_row, max_block_size, spread_num=0):
+    """Grow one block from `start_row` as far as it stays embeddable.
 
+    Rows are added one at a time (up to `max_block_size`); after each, the
+    block is simplified and layered on a fresh copy of the circuit, and
+    the growth stops as soon as some layer has more open connections
+    than the circuit has qubits (it could not be routed on the qubit
+    footprint). Rows are consecutive indices, not pyzx row values.
+
+    Returns:
+        `[start_row, end_row]` (inclusive indices).
+    """
     a = idx_to_row[start_row]
     step = max_row - start_row
 
@@ -75,7 +97,16 @@ def find_block_region(circuit, start_row, max_row, idx_to_row, max_block_size, s
     return [start_row, end_row]
 
 def find_block(circuit, max_block_size=10, dir_opt=1, spread_num=0, special_benchmark=False):
+    """Partition a circuit into consecutive row blocks.
 
+    Blocks are found greedily with `find_block_region` and capped at
+    `max_block_size` rows; the very last row (the output boundaries)
+    always forms its own block. With `dir_opt=0`, `max_block_size=1` or
+    `special_benchmark=True` the first two rows form a fixed first block.
+
+    Returns:
+        `{block_index: [first_row_idx, last_row_idx]}`.
+    """
     graph = circuit.to_graph()
     hadamard_box(graph)
     delete_singular_nodes(graph)

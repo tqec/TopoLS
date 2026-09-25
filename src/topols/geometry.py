@@ -30,13 +30,8 @@ def bounding_box(points, paths, x_max_floor, x_min_floor, y_max_floor, y_min_flo
     """
     Computes the volume of the bounding box enclosing all points and paths under given spatial constraints.
     """
-    # Tier 1 (Phase 2 -- see docs/REFACTOR_LOG.md's dated entry): x/y extent
-    # comes entirely from the x_min/max_floor/y_min/max_floor parameters,
-    # not from `points`/`paths` -- the original `zip(*all_points)` transpose
-    # computed x/y tuples only to discard them, on top of building two
-    # intermediate lists and concatenating them, just to get `max(zs)`.
-    # Called on every EmbeddingState construction (i.e. every MCTS move),
-    # so this is one of the hottest functions in the compiler.
+    # x/y extent comes from the floor parameters; only z is measured from
+    # the points and paths. Called on every EmbeddingState construction.
     max_z = max(pt[2] for pt in points.values())
     for path in paths:
         for pt in path:

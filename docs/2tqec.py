@@ -1,57 +1,35 @@
-from topols.export.bgraph import *
-from topols.export.visualize import *
-from topols.export.visualize_interactive import visualize_interactive
+"""Export a compiled circuit to a TQEC block graph and render it.
+
+    python3 2tqec.py -f ghz_16 -p True     # result/bgraph/ghz_16.bgraph + result/visualization/ghz_16.png
+    python3 2tqec.py -f ghz_16 -i True     # + result/visualization/ghz_16_interactive.html
+"""
+
 import argparse
 import os
 
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='Process quantum circuit')
-parser.add_argument('--file_name', '-f', default='quantum_circuit',
-                    help='Circuit file name (without .qasm extension)')
-parser.add_argument('--plot', '-p', type=bool, default=False,
-                    help='enabling plot the pipe diagram')
-parser.add_argument('--interactive', '-i', type=bool, default=False,
-                    help='write a draggable/rotatable Plotly HTML pipe diagram instead of a static Matplotlib plot')
+from topols.export.bgraph import build_pipe_diagram, save_bigraph
+from topols.export.visualize import visualize
+from topols.export.visualize_interactive import visualize_interactive
 
+parser = argparse.ArgumentParser(description="Export a TopoLS result to TQEC")
+parser.add_argument('--file_name', '-f', default='quantum_circuit',
+                    help='compiled circuit name (result/topols/<name>.pkl)')
+parser.add_argument('--plot', '-p', type=bool, default=False,
+                    help='write a static image of the pipe diagram')
+parser.add_argument('--interactive', '-i', type=bool, default=False,
+                    help='write a drag/rotate/zoom-able HTML pipe diagram')
 args = parser.parse_args()
 
 benchmark = args.file_name
-plot = args.plot
-interactive = args.interactive
+bgraph_metadata, edge_metadata = build_pipe_diagram(f"result/topols/{benchmark}.pkl")
 
-pos, ori, type, paths, io_info = load_compilation_result(f"result/topols/{benchmark}.pkl")
-
-paths = normalize_paths(paths)
-paths = remove_duplicate_paths(paths)
-paths = merge_idle_paths(paths, pos, type)
-paths = remove_duplicate_paths(paths)
-
-tqec_type = build_tqec_type(ori, type)
-bgraph_metadata = combine_metadata(pos, tqec_type, io_info)
-paths, invalid, t_nodes = check_paths_endpoints(paths=paths, pos_hist=pos, type_hist=type, schedule_t=0)
-
-add_missing_endpoint_nodes(paths, pos, type, bgraph_metadata)
-edge_data, pos_to_node = get_edge(pos, paths)
-bgraph_metadata, edge_metadata = edge_process(edge_data, bgraph_metadata, pos_to_node, ori, type, t_nodes)
-edge_metadata = remove_duplicate_geometric_edges(edge_metadata)
-
-dir_path = os.path.join("result", "bgraph")
-os.makedirs(dir_path, exist_ok=True)
+os.makedirs(os.path.join("result", "bgraph"), exist_ok=True)
 save_bigraph(f"result/bgraph/{benchmark}.bgraph", bgraph_metadata, edge_metadata)
 
-if plot:
-    dir_path = os.path.join("result", "visualization")
-    os.makedirs(dir_path, exist_ok=True)
-    visualize(bgraph_metadata, edge_metadata, benchmark, cube_size=0.4, pipe_thickness=0.18, plot=plot)
-
-if interactive:
-    dir_path = os.path.join("result", "visualization")
-    os.makedirs(dir_path, exist_ok=True)
+if args.plot or args.interactive:
+    os.makedirs(os.path.join("result", "visualization"), exist_ok=True)
+if args.plot:
+    visualize(bgraph_metadata, edge_metadata, benchmark, cube_size=0.4, pipe_thickness=0.18, plot=True)
+if args.interactive:
     out_path = visualize_interactive(bgraph_metadata, edge_metadata, benchmark, cube_size=0.4, pipe_thickness=0.18)
     print(f"Interactive pipe diagram written to: {out_path}")
-
-# execution example:
-'''
-python3 2tqec.py -f ghz_16 -p True
-python3 2tqec.py -f ghz_16 -i True
-'''

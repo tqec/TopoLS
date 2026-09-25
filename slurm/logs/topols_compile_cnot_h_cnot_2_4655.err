@@ -1,5 +1,0 @@
-/home/junyuzh/QEC/upgrade/TopoLS/src/topols/embedding/state.py:690: SyntaxWarning: "is" with a literal. Did you mean "=="?
-  if old_path is ():
-  0%|          | 0/3 [00:00<?, ?it/s] 67%|██████▋   | 2/3 [00:04<00:02,  2.25s/it] 67%|██████▋   | 2/3 [00:04<00:02,  2.25s/it]
-  0%|          | 0/19 [00:00<?, ?it/s]100%|██████████| 19/19 [00:00<00:00, 417.04it/s]
-  0%|          | 0/19 [00:00<?, ?it/s]100%|██████████| 19/19 [00:00<00:00, 369.13it/s]

@@ -1,3 +1,8 @@
+"""ZX-diagram simplification: spider fusion (`zx_optimization`), Hadamard-box
+handling (`hadamard_box`, `dissolve_hadamard_boxes`), removal of trivial
+spiders and row spreading for dense circuits.
+"""
+
 import math
 import pyzx as zx
 from pyzx import settings
@@ -9,6 +14,10 @@ from collections import defaultdict
 # ---------------------------------------------------------------------------
 
 def hadamard_box(graph):
+    """Replace every Hadamard edge by a simple edge - H_BOX vertex - simple
+    edge. The box sits at the row of the later endpoint, on the mean
+    qubit of the two; these coordinates identify the Hadamard later
+    (`embedding.hadamard.HTable`)."""
     hadamard_edges = [edge for edge in graph.edges() if graph.edge_type(edge) == zx.EdgeType.HADAMARD]
 
     for edge in hadamard_edges:
@@ -29,57 +38,26 @@ def hadamard_box(graph):
 
 
 def dissolve_hadamard_boxes(graph):
-    """H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
-    entry): an H-box never needs its own physical embedding cube -- at
-    render time (export/bgraph.py's merge_idle_paths) an H-node's own
-    position is discarded entirely, only the color transition between its
-    two real neighbors survives. So instead of embedding H as a node, we
-    remove each H_BOX vertex here (reconnecting its two neighbors
-    directly) and record the edge it used to sit on in `hadamard_edges`.
-    Downstream routing (embedding/state.py, embedding/fallback.py) flips
-    `curr_type` right before any ORI_MAP lookup for an edge found in this
-    set, which is mathematically equivalent to actually routing through
-    an H.
+    """Remove every Hadamard box, reconnect its two neighbours, and return
+    the set of edges (frozensets) that carried one.
 
-    Must run after `hadamard_box` (so Hadamards are explicit vertices to
-    remove) and after `zx_optimization` (so the H_BOX's final neighbors
-    are the ones idling/layering will actually see).
+    A Hadamard is a colour change along a pipe rather than a cube, so it is
+    not embedded; routing applies the flip instead (see embedding.hadamard).
+    Must run after `hadamard_box` and after `zx_optimization`.
 
-    H-boxes can end up directly adjacent to each other -- `hadamard_box`
-    itself never does that (it only ever puts an H_BOX between two real
-    vertices), but `delete_singular_nodes` can remove a degree-2 spider
-    sitting between two of them and leave H_BOX--H_BOX behind. Confirmed
-    present in the stock benchmarks: qft_16 has 32 such chains, qpe_16 has
-    34 of length 2 plus one of length 3, grover_6 has 2, vqe_16 has 1.
-    Since H*H = I, a chain of k H-boxes is a *single* H when k is odd and
-    a plain wire when k is even, so a whole chain collapses to one edge
-    that is flagged only when k is odd -- dissolving the chain one box at
-    a time instead would both leave a dangling flag (on an edge whose far
-    endpoint gets removed by the next iteration) and give an even chain a
-    spurious flip.
+    `delete_singular_nodes` can leave runs of adjacent H-boxes. Since
+    H*H = I, a run of k boxes is one Hadamard when k is odd and a plain wire
+    when k is even, so a whole run collapses to a single edge that is
+    flagged only for odd k.
     """
     hadamard_edges = set()
     hbox = {v for v in graph.vertices() if graph.type(v) == zx.VertexType.H_BOX}
 
-    # An H sitting on the wire into a qubit's *output* port must keep its
-    # cube. Dissolving it puts the flag on an edge nothing ever routes --
-    # the output boundary carries no type, so `layer_info` filters it out
-    # and no `_hadamard_flip` ever sees that edge -- and the flip is simply
-    # lost. The main pipeline's `idling_nodes_insertion` usually rescues
-    # such a flag by splitting the long run to the port and moving it onto
-    # the first (routable) segment, but that only works when the layer gap
-    # is big enough to need idle padding, and the gate-by-gate fallback's
-    # block-scoped `idling_nodes_insertion_block_vanilla` does not do it at
-    # all for an edge leaving the block. Measured on qaoa_4: the flags on
-    # 31--37 and 30--39 (37 and 39 are output boundaries) were stranded
-    # exactly this way, which is the whole difference between our 6 collars
-    # and the pre-optimization pipeline's 8.
-    #
-    # Keeping the box is what the pre-optimization pipeline did anyway, so
-    # it renders identically, and it costs at most one cube per qubit.
-    # *Input* ports are not affected: auto_ports embeds those as real
-    # coloured cubes and their H edges route normally (bv_16 has 11 of
-    # them, dj_16 14, qaoa_16 16 -- all render).
+    # A Hadamard on the wire into an output port keeps its box: the flip
+    # is applied when the flagged edge is routed, and edges into a boundary
+    # are never routed. A box costs at most one cube per qubit.
+    # Input ports are embedded as coloured cubes, so a Hadamard next to an
+    # input port dissolves normally.
     boundary_by_qubit = {}
     for v in graph.vertices():
         if graph.type(v) == zx.VertexType.BOUNDARY:
@@ -122,6 +100,8 @@ def dissolve_hadamard_boxes(graph):
 
 
 def delete_singular_nodes(graph):
+    """Remove degree-2 phase-0 spiders, joining their neighbours directly.
+    The new edge is Hadamard iff exactly one of the removed edges was."""
     singular_nodes = [
         v for v in graph.vertices()
         if len(graph.neighbors(v)) == 2 and graph.phase(v) == 0
@@ -148,9 +128,9 @@ def delete_singular_nodes(graph):
         if not graph.connected(u, w):
             graph.add_edge((u, w), new_edge_type)
 
-# Merge same type spiders
 def merge_spiders(graph, v1, v2):
-
+    """Fuse spider `v2` into `v1` (same type, connected by a simple edge):
+    phases add, `v2`'s other edges move to `v1`, `v2` is removed."""
     if graph.type(v1) != graph.type(v2):
         raise ValueError("Vertices must have the same type to merge.")
     if not graph.connected(v1, v2):
@@ -171,8 +151,14 @@ def merge_spiders(graph, v1, v2):
     graph.remove_vertex(v2)
 
 
-# Optimize the ZX graph by merging spiders with degree < 4 and phase 0
 def zx_optimization(graph, block_dic):
+    """Spider fusion within blocks.
+
+    A spider of degree < 4 is fused with a same-type neighbour of degree
+    < 4 in the same block when both are phase 0 (two CNOT halves) or one
+    is phase 0 and the other a degree-2 S or T (phase 1/2 or 1/4). At most
+    one fusion per spider per pass. `block_dic=None` ignores blocks.
+    """
     vertices_init = list(graph.vertices())
 
     for v in vertices_init:
@@ -203,9 +189,9 @@ def zx_optimization(graph, block_dic):
                     except Exception as e:
                         print(f"Could not merge {v} and {n}: {e}")
 
-# Optimize the ZX graph by merging spiders with degree < 4 and phase 0 within a specific block range
 def zx_optimization_block(graph, block_range):
-
+    """`zx_optimization` restricted to spiders whose row lies in
+    `block_range = [first_row, last_row]`; used while sizing blocks."""
     vertices_init = list(graph.vertices())
 
     for v in vertices_init:

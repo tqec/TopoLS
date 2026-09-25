@@ -1,3 +1,8 @@
+"""`EmbeddingState`: an immutable partial embedding of one layer. `next_state`
+places one spider and routes all of its wires (input ports and intra-layer
+edges) with colour consistency; `reward` completes and scores a layer.
+"""
+
 import os
 import random
 
@@ -9,48 +14,24 @@ from topols.routing.boundary import route_to_ceiling, route_single_T_to_boundary
 from topols.routing.color_algebra import AXIS_OFFSETS, ORI_MAP, color_switch, edge_tracer
 from topols.embedding.ports import auto_ports
 
-# Tier 1 (Phase 2 -- see docs/REFACTOR_LOG.md "Step 2c" entry): the routing
-# helpers below used to write `occ_tmp = set(occ).copy()`. `set(occ)`
-# already builds a brand-new independent set, so the chained `.copy()` was
-# a second, entirely redundant full copy of the occupancy set on every
-# edge-routing attempt. Removed at all 7 call sites -- behavior-identical.
 
 
 # ---------------------------------------------------------------------------
-# H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated entry): H
-# no longer exists as its own embedded node (zx_transform.simplify's
-# dissolve_hadamard_boxes removes it before layer_labeling ever runs,
-# recording which edge it used to sit on in `hadamard_edges`). Routing a
-# dissolved-H edge is mathematically equivalent to flipping `curr_type`
-# right before it feeds an ORI_MAP lookup -- one shared helper so every
-# call site does this the same way.
-#
-# `_hadamard_flip` is for edges between two *already-real* nodes (both
-# endpoints solid types 0/1/4/5, or a same-layer inter_connect edge) --
-# these are always genuine, unsplit graph edges, so a direct
-# frozenset-membership check against `hadamard_edges` is exact.
-#
-# `_hadamard_step` is for idle/H chains (idle_h_track): idling_nodes_
-# insertion always moves a dissolved-H flag onto the *first* new edge of
-# a chain split (zx_transform.layering._move_hadamard_flag), so the flag
-# can only ever appear on the edge nearest a chain's start_node, never on
-# the closing edge nearest the chain's other (real-node) end. It therefore
-# has to be picked up incrementally, one edge at a time, as the chain is
-# walked/extended -- exactly mirroring the existing `h_count` mechanism
-# (both count mod 2). `_route_input_ports`'s type-(2,3) branch and the
-# other chain-aware helpers below rely on `h_count` already carrying this,
-# so they deliberately do *not* also call `_hadamard_flip` on their closing
-# edge -- that edge is always a synthetic idle-insertion artifact and can
-# never itself be in `hadamard_edges`.
+# Hadamards. Hadamard boxes are dissolved from the ZX diagram before layering;
+# whether a connection between two real nodes must flip its colour type is
+# answered by HTable.needs_flip(A, B) from the circuit coordinates of A and B
+# (see embedding.hadamard). `_hadamard_flip` applies that to a direct
+# real-to-real edge; an idle chain applies it when it closes on a real node,
+# using the chain's recorded origin (see the chain helpers below).
+# `_hadamard_step` only preserves the shape of the idle_h_track bookkeeping.
 
-# Set TOPOLS_H_DEBUG=<path> to have every *consumed* H flag appended there
-# (one line per hit, from whichever process hits it -- the MCTS seed workers
-# are separate processes, so an in-memory registry would not survive). Used
-# to find H edges that no code path ever looks at. Off (and free) otherwise.
+# Set TOPOLS_H_DEBUG=<path> to log every applied Hadamard flip to that file
+# (a file, not memory, because MCTS seed workers are separate processes).
 _H_DEBUG_PATH = os.environ.get("TOPOLS_H_DEBUG")
 
 
 def _h_debug(tag, node_a, node_b):
+    """Append one flip record to the $TOPOLS_H_DEBUG file."""
     with open(_H_DEBUG_PATH, "a") as fh:
         fh.write(f"{tag}\t{node_a}\t{node_b}\n")
 
@@ -63,10 +44,9 @@ def _base_id(x):
 
 
 def _hadamard_flip(hadamard_edges, curr_type, node_a, node_b):
-    """Direct edge between two REAL nodes: flip iff the circuit wire between
-    them carries an odd number of H gates. `hadamard_edges` is an
-    embedding.hadamard.HTable (name kept so the 15 call sites and the
-    EmbeddingState slot did not have to change)."""
+    """Colour type of a wire from real node `node_a` to real node `node_b`:
+    flipped iff the circuit wire between them carries an odd number of
+    Hadamards. `hadamard_edges` is an embedding.hadamard.HTable."""
     if hadamard_edges.needs_flip(node_a, node_b):
         if _H_DEBUG_PATH:
             _h_debug("flip", node_a, node_b)
@@ -75,30 +55,23 @@ def _hadamard_flip(hadamard_edges, curr_type, node_a, node_b):
 
 
 def _hadamard_step(hadamard_edges, h_count, node_a, node_b):
-    """Kept for the idle_h_track bookkeeping shape only. Under the
-    wire-property model nothing is counted along a chain -- the flip is
-    decided once, at chain close, by HTable.needs_flip(start_node, closer)
-    -- so this is deliberately the identity."""
+    """Third field of an idle-chain track entry when the chain grows by one
+    idle. Nothing is counted along a chain (the flip is decided at chain
+    close by HTable.needs_flip), so the value is carried through unchanged."""
     return h_count
 
 
 def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, input_ports, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, hadamard_edges):
-    """Route every input port of a newly-placed standard/S/T node (types
-    0, 1, 4, 5 -- the three call sites differ only in `target_type`: the
-    node's own type for the standard-cube case, or the constant 0 for S/T,
-    which are always traced as Z-type). The first routed edge determines
-    `ori[node]`; every subsequent edge must match it (falling back to
-    `color_switch` on mismatch). Extracted from next_state() -- see
-    docs/REFACTOR_LOG.md's "Step 1b (part 2)" entry.
+    """Route every input port of a newly placed standard/S/T node (types
+    0, 1, 4, 5). `target_type` is the node's own type for a standard cube and
+    0 for S/T, which are always traced as Z-type. The first routed edge fixes
+    `ori[node]`; every later edge must agree with it (`color_switch` re-routes
+    a mismatch).
 
-    Returns `(path, occ_tmp, input)` from the *last* processed input port on
-    success -- the type-4 (S) branch needs these leftovers immediately
-    afterward to place its Y-basis measurement stub, and both callers pass
-    the returned `input` on to the intra-layer routing calls that follow
-    (matching next_state()'s pre-extraction behavior, where `input` was a
-    loop variable that simply outlived the loop). Returns None on any
-    routing failure, matching next_state()'s "return None aborts this
-    placement" convention.
+    Returns `(path, occ_tmp, input)` for the last input port routed -- the S
+    branch uses them to place its measurement stub and the callers pass
+    `input` on to the intra-layer routing -- or None when any routing fails,
+    in which case next_state() abandons this placement.
     """
 
     ori_flag = 0
@@ -191,23 +164,10 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
 
 
 # ---------------------------------------------------------------------------
-# Shared intra-layer routing helpers, extracted from next_state()
-# ---------------------------------------------------------------------------
-#
-# next_state() originally repeated four routing shapes verbatim across its
-# five node-type branches (12 call sites total, each byte-for-byte identical
-# to the others sharing its shape -- confirmed before extracting, see
-# docs/REFACTOR_LOG.md's "Step 1b" entry). Extracting them here does not
-# change control flow: each call site below is invoked from exactly the
-# same place in exactly the same loop nesting as the code it replaces --
-# including the two call sites inside the type-3 (Hadamard) branch's
-# "Second phase" loop, which is nested one level deeper than it should be
-# (a pre-existing bug, deliberately preserved -- see
-# docs/ARCHITECTURE.md's bug list).
-#
-# All four helpers mutate `occ` in place (adding the routed path's interior
-# points) and return the routed path, or None on routing failure -- matching
-# next_state()'s existing "return None to abort placement" convention.
+# Intra-layer routing helpers shared by next_state()'s node-type branches.
+# All four add the routed path's interior points to `occ` in place and return
+# the path, or None when routing fails (next_state() then abandons the
+# placement).
 
 def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ_input, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
     """dst_typ in (0,1,4,5), src_node is itself a standard/S/T node with a
@@ -395,15 +355,33 @@ def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node,
 # ---------------------------------------------------------------------------
 
 class EmbeddingState:
-    """
-    Represents a mutable state in the incremental embedding process.
+    """A partial embedding of one layer, used as the MCTS search state.
 
-    An EmbeddingState captures both:
-    (1) the already embedded structure (nodes, paths, occupied space), and
-    (2) the remaining nodes and connections to be embedded.
+    A state holds (1) what is embedded so far -- the previous layer's nodes
+    (the layer's input ports) plus the nodes of the current layer placed so
+    far, with their routed wires -- and (2) the remaining nodes of the layer
+    in the order they will be placed. `next_state` places the next node and
+    returns a new state; `reward` completes a terminal state.
 
-    It is designed to be used as a search / rollout / optimization state,
-    where each state transition produces a new EmbeddingState instance.
+    Conventions:
+        * A node is a cube at `embed_node_pos[node] = (x, y, z)`, with
+          `embed_node_type[node]` in {0 Z, 1 X, 2 idle, 3 Hadamard box, 4 S,
+          5 T} and, for types 0/1/4/5, an orientation `embed_node_ori[node]`
+          in {"i", "j", "k"}: the axis whose faces carry the odd colour (see
+          `routing.color_algebra`).
+        * A wire is a path, a tuple of adjacent cells; `embed_path` holds
+          every path routed so far and `occupied` every cell in use.
+        * Idles and boxes are not cubes: a chain of them is a single pipe.
+          `idle_h_track[node] = [origin, path, _]` records, for the idle at
+          the end of a chain, the real node the chain started from and the
+          path from the chain end back to that origin; `idle_place` holds the
+          idle positions. When the chain reaches a real node, the colour is
+          traced along the whole path from the origin, and the Hadamard flip
+          for the wire origin -> node is applied (`hadamard_edges.needs_flip`).
+        * `t_track[node] = [exit, path, ori]` records the exit stub of an S/T
+          node (its wire to the boundary).
+        * Nodes lifted to a ceiling are renamed `<node>_old`; the lifted end
+          keeps the plain name (`ports.ceiling`).
     """
 
     __slots__ = (
@@ -516,10 +494,8 @@ class EmbeddingState:
         # z-extent introduced by previous embedding layers
         self.z_length = z_length
 
-        # embedding.hadamard.HTable: answers "odd number of H gates on the
-        # circuit wire between these two real nodes?" -- the single flip
-        # decision for both direct edges and closed idle chains. Slot name
-        # kept from the earlier flagged-edge-set model.
+        # embedding.hadamard.HTable: whether the wire between two real nodes
+        # carries an odd number of Hadamards.
         self.hadamard_edges = hadamard_edges
 
         # Index of the next node to embed
@@ -592,19 +568,10 @@ class EmbeddingState:
         xs = [pt[0] for pt in available_points]
         ys = [pt[1] for pt in available_points]
 
-        # Bounding box of ceiling ports. When there are no output ports
-        # left to route (num_ports == 0 -- a legitimate terminal state,
-        # e.g. the circuit's last layer), auto_ports(0, ...) correctly
-        # returns no candidate points, but xs/ys are then empty and
-        # min()/max() would raise. x_min/x_max/y_min/y_max are also used
-        # later in this function for T-gate exit routing (route_single_
-        # T_to_boundary), which is independent of whether there are output
-        # ports here, so fall back to the embedding's own fixed floor
-        # bounds rather than an arbitrary default -- confirmed reachable
-        # this session (unified debugging pass) via qft_16's gate-by-gate
-        # fallback, previously never exercised deeply enough to hit this.
-        # See docs/ARCHITECTURE.md's bug list and docs/REFACTOR_LOG.md's
-        # dated entry.
+        # Bounding box of the ceiling ports. With no output ports left (a
+        # legitimate terminal state, e.g. the last layer) auto_ports returns
+        # no points; fall back to the embedding's floor bounds, which the
+        # T-gate exit routing below uses as well.
         if num_ports == 0:
             x_min, x_max = self.x_min_floor, self.x_max_floor
             y_min, y_max = self.y_min_floor, self.y_max_floor
@@ -772,7 +739,7 @@ class EmbeddingState:
                 if new_exit_point is None:
                     return None
 
-                if old_path is ():
+                if old_path == ():
                     combined_path = new_path
                 else:
                     combined_path = old_path + new_path[1:]
@@ -1181,20 +1148,9 @@ class EmbeddingState:
                             return None
                         paths.append(tuple(path))
 
-            # Second phase: inter-node connections involving Hadamard
-            # P3 fix (unified debugging pass -- see docs/ARCHITECTURE.md's
-            # bug list and docs/REFACTOR_LOG.md's dated entry): this loop
-            # used to be nested one level inside the "for input in
-            # self.input_connect[node]" loop above, so a Hadamard node with
-            # 2 input ports would run it twice, and the second `del
-            # track[...]` inside `_route_chain_src_to_chain_dst` would
-            # KeyError. No existing benchmark was ever confirmed to exercise
-            # a two-input-port Hadamard node, so this was never observed --
-            # but for the common (and only tested) single-input-port case,
-            # the last-and-only loop iteration already reached this exact
-            # point with the exact same `pos`/`occ`/`track` state a sibling
-            # statement after the loop would see, so moving it here is
-            # behavior-identical for n<=1 inputs and only changes n>=2.
+            # Second phase: inter-node connections involving the Hadamard node
+            # (a sibling of the input-port loop, so it runs once however many
+            # input ports the node has).
             for a, b in self.inter_connect:
 
                 if (a == node and b in pos) or (b == node and a in pos):

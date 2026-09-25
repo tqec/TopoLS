@@ -1,7 +1,0 @@
-  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:04<00:12,  4.02s/it] 50%|█████     | 2/4 [00:08<00:08,  4.12s/it] 50%|█████     | 2/4 [00:25<00:25, 12.59s/it]
-Traceback (most recent call last):
-  File "/home/junyuzh/QEC/upgrade/TopoLS/docs/prog.py", line 151, in <module>
-    best_state, pos_hist, ori_hist, path_hist, type_hist = operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor=1, seed_init_tuple=seed, time_bound=time_bound, iter_num=iter_num, move_num=6, length=length, dir_opt=dir_opt, spread_num=spread_num)
-  File "/home/junyuzh/QEC/upgrade/TopoLS/src/topols/driver.py", line 440, in operation
-    input_port_loc = block_state.embed_node_pos
-UnboundLocalError: local variable 'block_state' referenced before assignment

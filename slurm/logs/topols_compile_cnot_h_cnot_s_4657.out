@@ -1,8 +1,0 @@
-Executing cnot_h_cnot_s benchmark.
-Embedding progress:
-x_length: 5.0 y_length: 3.0 z_length: 4
-Space-time volume: 60.0
-Time: 4
-Space: 15.0
-Compilation time: 0.6112833023071289
-Interactive pipe diagram written to: result/visualization/cnot_h_cnot_s_interactive.html

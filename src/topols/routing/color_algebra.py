@@ -6,11 +6,14 @@ from topols.geometry import add, neg, vector
 # Utility functions for pipe processing
 # ---------------------------------------------------------------------------
 
-# Predefined transition rules for pipe edge tracing.
-# These tables encode how node/edge types evolve when the path
-# changes direction along different axes.
+# A cube's colouring is encoded as an orientation `ori` in {'i', 'j', 'k'}
+# (the axis whose two faces carry the odd colour) plus a type in {0, 1}
+# (which colour is the odd one). Following a pipe along a path, every bend
+# may change the type; the tables below encode those changes so that the
+# colouring at the far end can be computed without simulating faces.
 
-# RULE_S: initialization rule applied at the first detected direction change
+# RULE_S[(type, first_axis, second_axis)]: type after the first bend of a
+# path, given the type at the start.
 RULE_S = {
     (0, 'i', 'j'): 0, (0, 'i', 'k'): 0, (0, 'j', 'i'): 0, (0, 'j', 'k'): 1,
     (0, 'k', 'i'): 1, (0, 'k', 'j'): 1,
@@ -18,7 +21,7 @@ RULE_S = {
     (1, 'k', 'i'): 0, (1, 'k', 'j'): 0
 }
 
-# RULES: general transition table for subsequent direction changes
+# RULES[(type, prev_axis, next_axis)]: type after every subsequent bend.
 RULES = {
     (0, 'i', 'j'): 0, (0, 'i', 'k'): 1, (1, 'i', 'j'): 1, (1, 'i', 'k'): 0,
     (0, 'j', 'i'): 0, (0, 'j', 'k'): 0, (1, 'j', 'i'): 1, (1, 'j', 'k'): 1,
@@ -32,20 +35,17 @@ _AXIS_MAP = {
     ( 0,  0,  1): 'k', ( 0,  0, -1): 'k',
 }
 
-# Consolidated from three previously-duplicated copies (EmbeddingState class
-# attributes in layer_mcts.py, plus local redefinitions inside
-# basic_embedding() and ceiling()) -- see docs/REFACTOR_LOG.md for the
-# 2026-09-21 "Phase 1a step 2" entry. Identical values in every prior copy;
-# this consolidation changes no behavior.
+# ORI_MAP[(arrival_axis, type, node_type)]: orientation a cube must have
+# when a pipe arrives along `arrival_axis` with colour `type`, for a cube of
+# `node_type` 0 (Z) or 1 (X). Shared by embedding.state, embedding.fallback,
+# embedding.ports and export.bgraph.
 ORI_MAP = {
     ('i', 0, 0): 'j', ('i', 0, 1): 'k', ('i', 1, 0): 'k', ('i', 1, 1): 'j',
     ('j', 0, 0): 'i', ('j', 0, 1): 'k', ('j', 1, 0): 'k', ('j', 1, 1): 'i',
     ('k', 0, 0): 'i', ('k', 0, 1): 'j', ('k', 1, 0): 'j', ('k', 1, 1): 'i',
 }
 
-# Consolidated from two previously-duplicated copies (EmbeddingState class
-# attribute in layer_mcts.py, plus a local redefinition inside
-# route_single_T_to_boundary()). Identical values in both prior copies.
+# Unit steps along each axis, both directions.
 AXIS_OFFSETS = {
     'i': [( 1, 0, 0), (-1, 0, 0)],
     'j': [( 0, 1, 0), ( 0,-1, 0)],
@@ -110,10 +110,7 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
     conflicts between overlapping or adjacent paths.
     """
 
-    # Copy inputs to avoid side effects. Tier 1 (Phase 2 -- see
-    # docs/REFACTOR_LOG.md's dated entry): `set(occupied) | set(path)` built
-    # three sets (a copy of `occupied`, a new set from `path`, and the union
-    # result) where one copy-then-update suffices.
+    # Copy inputs to avoid side effects.
     path = list(path)
     occ  = set(occupied)
     occ.update(path)
@@ -131,12 +128,8 @@ def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor,
         if v_in == v_out:
             continue
 
-        # Normal direction of the corner (right-hand rule). Tier 1 (Phase 2
-        # -- see docs/REFACTOR_LOG.md's dated entry): a hand-computed 3D
-        # cross product avoids numpy's per-call array-construction/ufunc-
-        # dispatch overhead for what is just three scalar multiplications --
-        # this loop runs once per corner candidate, and long T-gate-heavy
-        # paths (z ~600+) can have many corners.
+        # Normal direction of the corner (right-hand rule); the cross
+        # product is written out to avoid numpy overhead in this hot loop.
         face_dir = (
             v_in[1]*v_out[2] - v_in[2]*v_out[1],
             v_in[2]*v_out[0] - v_in[0]*v_out[2],

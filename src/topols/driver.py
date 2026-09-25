@@ -1,3 +1,9 @@
+"""Layer-by-layer compilation driver: `operation()` embeds every layer of a
+layered ZX diagram with parallel MCTS seed trials, hands frontiers across
+blocks, escalates through the fallback ladder when a layer cannot be
+embedded, and seals the final layer.
+"""
+
 import os
 import random
 from multiprocessing import Pool
@@ -19,49 +25,27 @@ from topols.zx_transform.layering import (
     align_output_ports,
 )
 
-# Phase 2 parallelization (see docs/REFACTOR_LOG.md's dated entry): the two
-# "normal path" seed loops in operation() below (move_num=1 and, if
-# dir_opt==1, move_num=move_num) launch `seed_step` structurally
-# independent MCTS searches and keep whichever gets the smallest volume --
-# a textbook root-parallelization opportunity. The one subtlety is that
-# `mcts()` (via `EmbeddingState.moves()`) consumes the *global* `random`
-# module state, and each seed's preamble (`random.seed(seed)` + shuffling
-# `node_input_connect` in place) leaves that global state at a point that
-# depends on every earlier seed's preamble having already run, in order --
-# not just on `seed` itself. To parallelize the expensive `mcts()` calls
-# without changing a single bit of output, this worker captures a
-# `random.getstate()` snapshot in the *serial* preamble phase, right before
-# where `mcts()` would have been called, and restores it with
-# `random.setstate()` in the worker process before actually calling
-# `mcts()`. This reproduces the exact same draw sequence `mcts()`/`moves()`
-# would have seen serially, just executed concurrently.
+# Root parallelization of the seed loops in operation(): each seed's MCTS
+# search runs in its own process and the lowest-volume result is kept.
+# `mcts()` draws from the global `random` state, and each seed's preamble
+# (`random.seed(seed)` + shuffling `node_input_connect`) advances that state
+# cumulatively, so a worker receives the RNG snapshot taken right after its
+# seed's preamble and restores it before searching: the parallel run draws
+# exactly the sequence the serial loop would have.
 def _mcts_worker(root_state, rng_state, iters, time_limit, move_num, block_switch, ceiling_switch, layer, length):
+    """Run one seed's `mcts` search in a worker process with the given RNG state."""
     random.setstate(rng_state)
     return mcts(root_state, iters=iters, time_limit=time_limit, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch, layer=layer, length=length)
 
 
 def _fresh_copy_for_ceiling(state):
-    """P2 fix (unified debugging pass -- see docs/ARCHITECTURE.md's bug
-    list and docs/REFACTOR_LOG.md's dated entry): `ceiling()` mutates its
-    `best_state` argument's dict fields in place (`embed_node_pos`/`_ori`/
-    `_type`, `t_track`, `idle_h_track`), and the fallback ladder's control
-    flow can call `ceiling(pre_state, ...)` a second time on the *same*
-    `pre_state` object before it's ever reassigned (confirmed reachable:
-    the top-level ceiling-retry and gate-by-gate's own second-level
-    ceiling-retry share one `ceiling_flag` guard that gets reset to 0 by
-    an unrelated inner success, not by "has ceiling() run on this
-    pre_state yet"). A second call on an already-mutated object corrupts
-    `embed_path` (`ceiling_paths` gets appended twice) and `idle_h_track`
-    (wraps an already-transformed entry again). Fix: give `ceiling()` a
-    fresh shallow copy of the mutable dict fields every time instead of
-    the shared `pre_state` object, so each call starts from the same true
-    "last known good" values independently. `ceiling()` only ever does
-    top-level `dict[key] = value` / `del dict[key]` on these fields (never
-    mutates a nested value in place), so a shallow copy is sufficient --
-    confirmed by reading the whole function body. Behavior-identical for
-    the common single-call case (the returned state's field *values* are
-    the same either way); this only changes what happens on a second call
-    on the same `pre_state`."""
+    """Shallow copy of `state`'s mutable dict fields, for `ceiling()`.
+
+    `ceiling()` rewrites `embed_node_pos/_ori/_type`, `t_track` and
+    `idle_h_track` in place, and the fallback ladder may call it more than
+    once on the same previous-layer state; a fresh copy each time keeps the
+    last known good state intact. A shallow copy suffices because
+    `ceiling()` only assigns or deletes top-level keys."""
     return EmbeddingState(
         embed_node_pos=dict(state.embed_node_pos),
         embed_node_ori=dict(state.embed_node_ori),
@@ -81,13 +65,9 @@ def _fresh_copy_for_ceiling(state):
 
 
 def _available_cpu_count():
-    """`os.cpu_count()` reports the whole machine's core count, not this
-    process's actual Slurm allocation -- confirmed on this cluster
-    (pennqsl-1): a job requesting `--cpus-per-task=4` still sees
-    `os.cpu_count() == 192`. `os.sched_getaffinity(0)` respects the
-    cgroup/cpuset Slurm actually assigns and correctly reports 4 in the same
-    job, so prefer it; fall back to `os.cpu_count()` where affinity isn't
-    available (e.g. non-Linux) -- see docs/REFACTOR_LOG.md's dated entry."""
+    """CPUs available to this process (respects the cpuset a scheduler such
+    as Slurm assigns); falls back to os.cpu_count() where affinity is not
+    available."""
     try:
         return len(os.sched_getaffinity(0))
     except AttributeError:
@@ -108,114 +88,62 @@ def _run_seeds_parallel(jobs):
     with Pool(processes=n_procs) as pool:
         return pool.starmap(_mcts_worker, jobs)
 
-# ------------------------------------------------------------------------------
-# Main Operation: Layer-by-Layer 3D Embedding with MCTS and Fallback Strategies
-# ------------------------------------------------------------------------------
-#
-# This function is the *top-level orchestration routine* for embedding a quantum
-# circuit into a 3D lattice representation using a combination of:
-#
-#   - Layer-by-layer processing
-#   - Block-based optimization
-#   - Monte Carlo Tree Search (MCTS)
-#   - Ceiling rewiring
-#   - Gate-by-gate fallback embedding
-#   - Deterministic brute-force recovery
-#
-# The function does NOT merely run a single embedding pass. Instead, it manages
-# a multi-stage adaptive process with backtracking, recovery, and structural
-# rewrites depending on success or failure at each stage.
-#
-# ---------------------------------------------------------------------------
-# High-level responsibilities
-# ---------------------------------------------------------------------------
-#
-# Given:
-#   - A quantum circuit and its corresponding graph representation
-#   - Layer annotations and block partitioning
-#   - Embedding constraints (geometry, z-floor, time limits)
-#
-# This function:
-#
-#   1. Initializes physical input ports and boundary constraints.
-#   2. Iterates through circuit layers in execution order.
-#   3. For each layer:
-#        - Attempts MCTS-based embedding under multiple random seeds.
-#        - Applies block-aware and ceiling-aware heuristics.
-#        - Evaluates embeddings via a volume-based reward.
-#   4. If embedding fails:
-#        - Applies ceiling rewiring.
-#        - Falls back to gate-by-gate embedding within a block.
-#        - Ultimately applies deterministic basic embedding if required.
-#   5. Maintains global embedding history and qubit mapping across blocks.
-#
-# The final result is a geometrically valid, connectivity-preserving 3D embedding
-# of the entire circuit.
-#
-# ---------------------------------------------------------------------------
-# Main control flow
-# ---------------------------------------------------------------------------
-#
-# The algorithm proceeds layer by layer:
-#
-#   for i in range(1, len(rows)):
-#
-# Each iteration represents an attempt to embed one logical layer of the circuit.
-#
-# Key stages per layer:
-#
-#   (1) Block transition detection
-#       - Detects when entering a new block
-#       - Triggers ceiling rewiring and state compression
-#
-#   (2) Layer information extraction
-#       - Computes node input, inter-node, and output connectivity
-#       - Determines node types for the current layer
-#
-#   (3) MCTS-based embedding
-#       - Multiple randomized seeds
-#       - Priority ordering for idle nodes during block transitions
-#       - Reward = negative bounding volume
-#
-#   (4) Directional optimization (optional)
-#       - Repeats MCTS with expanded branching
-#
-#   (5) Failure handling (multi-tier)
-#
-#       If MCTS fails:
-#         a. Try ceiling rewiring with previous layer state
-#         b. Retry MCTS under ceiling constraints
-#         c. If still failing:
-#              - Restart the entire block
-#              - Perform gate-by-gate embedding
-#              - Apply ceiling and brute-force embedding as last resort
-#
-# ---------------------------------------------------------------------------
-# Return values
-# ---------------------------------------------------------------------------
-#
-# Returns:
-#
-#   best_state : Final EmbeddingState object
-#   pos_hist   : Dictionary of all node positions
-#   ori_hist   : Dictionary of all node orientations
-#   path_hist  : List of all routing paths
-#   type_hist  : Dictionary of all node types
-#
-# These outputs fully describe the final 3D embedding.
-#
-# ---------------------------------------------------------------------------
-
 def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_row, rows, q_num, z_floor, seed_init_tuple=(0, 3), time_bound=3, iter_num=1000, move_num=10, length=4, dir_opt=1, spread_num=0, hadamard_edges=None, io_info=None, backtrack=0):
+    """Embed a layered ZX diagram into a 3D pipe diagram, layer by layer.
 
-    # H-gate embedding optimization (see docs/REFACTOR_LOG.md's dated
-    # entry): callers that dissolved H-boxes out of `graph` before calling
-    # this pass their `hadamard_edges` set through; older/other callers
-    # that never ran dissolve_hadamard_boxes get an empty set here, which
-    # makes every `_hadamard_flip`/`_hadamard_step` check a no-op.
-    # `hadamard_edges` is an embedding.hadamard.HTable (wire-property model:
-    # "odd number of H between these two real nodes?"). The parameter name
-    # is kept from the flagged-edge-set model so call sites did not move.
+    The input ports of qubits are laid out on a 2D grid (`auto_ports`);
+    then, for every layer in order, the layer's spiders are placed and
+    their wires routed by MCTS (`embedding.mcts.mcts`) from the previous
+    layer's state. `seed_step` independent searches (consecutive random
+    seeds) run in parallel processes and the lowest-volume result is
+    kept; with `dir_opt=1` a second pass with `move_num` candidate
+    placements per node follows the first pass's single-candidate search.
+
+    At a block boundary the open wires of the previous layer are lifted to
+    a common ceiling plane (`ports.ceiling`) and become the input ports of
+    the new block. When no seed can embed a layer, the driver escalates:
+
+    1. `--backtrack k`: retry from up to k of the other seeds' states for
+       the previous layer (plain search first, then from a ceiling);
+    2. ceiling retry: lift the previous layer to a ceiling and search again;
+    3. gate-by-gate: re-layer the current block one row per layer
+       (`layer_labeling_block_vanilla`) and embed those thinner layers
+       with the same search (nodes are renamed `<vertex>_<block>`);
+    4. brute force: `fallback.basic_embedding` stacks the layer
+       deterministically.
+
+    Every exit path ends with a final seal (`ceiling(final=True)` or
+    `seal_brute_frontier`) that lifts the last layer's open wires to one
+    plane and gives every output end a definite colour.
+
+    Args:
+        circuit, graph: the pyzx circuit and its layered graph.
+        layer_labels: `{vertex: layer}`; layer_to_block: `{layer: block}`;
+            block_info: `{block: [first_row_idx, last_row_idx]}`;
+            idx_to_row: row index -> pyzx row (see `topols.pipeline`).
+        rows: set of layer indices; q_num: number of qubits.
+        z_floor: z of the first layer.
+        seed_init_tuple: `(first_seed, seed_step)`.
+        time_bound, iter_num: per-MCTS-call wall-clock (s) and iteration budget.
+        move_num: candidate placements per node in the second search pass.
+        length: qubits per row of the port grid.
+        dir_opt: 1 to run the second (direction-optimising) pass.
+        spread_num: row spreading used when parsing (needed by the
+            gate-by-gate fallback, which re-parses the circuit).
+        hadamard_edges: `embedding.hadamard.HTable`; None = no Hadamards.
+        io_info: `{vertex: port info}` from `extract_io_nodes`; entries for
+            nodes renamed by the fallback are added to it.
+        backtrack: k for the backtrack rung (0 = off).
+
+    Returns:
+        `(best_state, pos_hist, ori_hist, path_hist, type_hist)`: the final
+        `EmbeddingState` and, over the whole circuit, node positions
+        `{node: (x, y, z)}`, orientations `{node: "i" | "j" | "k"}`, the
+        list of routed paths, and node types.
+
+    Set `TOPOLS_TAIL_DEBUG=<file>` to log which rung embedded each layer.
+    """
+
     if hadamard_edges is None:
         hadamard_edges = HTable()
 
@@ -229,14 +157,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         with open(_h_dbg, "a") as _fh:
             _fh.write(f"declared_outer\t{hadamard_edges.stats()}\n")
 
-    # Gate-by-gate fallback id-namespace fix (see docs/REFACTOR_LOG.md's
-    # dated entry): the caller's `io_info` (built once, up front, from the
-    # *outer* pre-fallback graph -- see docs/prog.py) goes stale for any
-    # qubit whose fallback-produced final node gets the `_{block}` suffix
-    # renaming below. Passing the caller's dict through here (mutated in
-    # place) lets the fallback branch patch in correctly-suffixed entries
-    # as it discovers them, so the caller's copy ends up complete without
-    # operation() needing to change its return signature.
+    # The gate-by-gate fallback renames the nodes it embeds (`<node>_<block>`)
+    # and adds the corresponding port entries to `io_info` as it goes.
     if io_info is None:
         io_info = {}
 
@@ -281,23 +203,9 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     t_track_hist = {}
     idle_place = {}
 
-    # P0 fix (confirmed crash -- see docs/ARCHITECTURE.md's bug list and
-    # docs/REFACTOR_LOG.md's dated entry): `block_state` / `qubit_map_pre_layer`
-    # / `occupied_zmax` below are otherwise only assigned inside the
-    # `if block_flag == 1:` branch further down, which fires on a
-    # *transition* to a later block -- never for block 0 itself (`block`
-    # starts at 0, so entering it isn't a transition). If block 0's own
-    # MCTS/ceiling-retry ever fails and falls into the gate-by-gate
-    # fallback ladder, these three names were read before ever being
-    # assigned (`UnboundLocalError`) -- confirmed reachable this session.
-    # Seed them here with the "nothing embedded yet" values the
-    # block_flag==1 branch would have produced had entering block 0 itself
-    # counted as a transition, so block 0's fallback gets the same
-    # "start of this block" state a later block's fallback gets from a
-    # real ceiling() call. A genuine block transition (block_flag==1)
-    # unconditionally overwrites all three with the real computed values,
-    # exactly as before this fix -- this only changes behavior for the
-    # previously-crashing block-0-fails case.
+    # Block 0 is never *entered* by a block transition, so the per-block state
+    # that the transition branch below normally creates is seeded here with
+    # "nothing embedded yet" values; the fallback ladder relies on them.
     block_state = EmbeddingState(
         embed_node_pos=dict(input_port_loc),
         embed_node_ori=dict(input_port_ori),
@@ -314,22 +222,9 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     qubit_map_pre_layer = {q: q for q in range(q_num)}
     occupied_zmax = frozenset()
 
-    # P0 fix, part 2 (found while validating part 1 above -- see
-    # docs/REFACTOR_LOG.md's dated entry, same "unified debugging pass"):
-    # `pre_state`/`pre_ceiling_track`/`pre_node_type` are only assigned at
-    # the end of a layer's *successful* processing (after `ceiling_track`
-    # is computed from `best_state.reward(...)`), never before the loop
-    # starts. If layer 1 itself fails all the way through ceiling-retry --
-    # confirmed reachable this session (`vqe_16` under an artificially
-    # tight iters/time_bound) -- any of `ceiling()`'s 5 call sites reads
-    # these before they exist. `ceiling()` only ever *adds* work found in
-    # `ceiling_track`, so an empty `ceiling_track`/`node_type` makes it a
-    # no-op passthrough on `pre_state` -- exactly "nothing embedded yet,
-    # nothing to promote to the ceiling," matching `block_state` above.
-    # Deliberately a *separate* EmbeddingState instance (not the same
-    # object as `block_state`): `ceiling()` mutates its `best_state`
-    # argument in place, so sharing one object between these two names
-    # would let a ceiling() call on one silently corrupt the other.
+    # Likewise seed the previous-layer state that `ceiling()` reads: an empty
+    # ceiling track makes it a no-op ("nothing to lift yet"). A separate
+    # instance from `block_state`, since `ceiling()` mutates its argument.
     pre_state = EmbeddingState(
         embed_node_pos=dict(input_port_loc),
         embed_node_ori=dict(input_port_ori),
@@ -372,16 +267,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             node_input_connect_new = {}
             for key in node_input_connect:
                 substitute = qubit_output_map[graph.qubit(key)]
-                # Cross-block H fix (see docs/REFACTOR_LOG.md's dated
-                # entry): mirrors the matching fix in the gate-by-gate
-                # fallback's own j==1 handling -- `key`'s natural
-                # predecessor (in the outer `graph`) is about to be
-                # replaced by `substitute` (the previous, fallback-
-                # processed block's hand-off id), so any H flag on that
-                # natural edge has to move onto the substituted pair.
-                # No H flag transfer here any more: under the wire-property
-                # model the routing of `key` against `substitute` asks
-                # HTable.needs_flip(key, substitute) directly.
+                # Hadamards are keyed by circuit coordinates, so routing `key`
+                # against the substituted predecessor needs no bookkeeping here.
                 node_input_connect_new[key] = [substitute]
             node_input_connect = node_input_connect_new
             input_mapping_flag = 0
@@ -521,20 +408,9 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             random.seed(seed)
             for key in node_input_connect:
                 random.shuffle(node_input_connect[key])
-            # P-new fix (found after enabling seed_step=5 -- see
-            # docs/REFACTOR_LOG.md's dated entry): `node_input_connect` is
-            # shared, mutable, and progressively re-shuffled by every seed
-            # in this loop; `root_state.input_connect` used to be bound to
-            # this *same* dict object rather than a copy, so by the time
-            # jobs are dispatched to the parallel pool (after every seed's
-            # preamble has already run), *every* seed's root_state ended up
-            # seeing the *final* post-all-seeds shuffle state instead of
-            # the state that existed at its own point in the sequence --
-            # breaking the faithful-replay guarantee for this one field
-            # (the `random.getstate()` snapshot was correct; this dict
-            # wasn't equally snapshotted). Fix: snapshot a copy right here,
-            # after this seed's own shuffle, and use the snapshot for
-            # everything below instead of the live, still-mutating dict.
+            # Each seed gets its own snapshot of the shuffled input order: the dict
+            # is shuffled in place by every seed in turn, and all root states are
+            # built before the searches are dispatched.
             node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
             keys = list(node_type.keys())
             random.shuffle(keys)
@@ -580,8 +456,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 random.seed(seed)
                 for key in node_input_connect:
                     random.shuffle(node_input_connect[key])
-                # Snapshot fix -- see the matching comment on the first
-                # seed loop above and docs/REFACTOR_LOG.md.
+                # Per-seed snapshot of the shuffled input order (see the first seed loop).
                 node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                 keys = list(node_type.keys())
                 random.shuffle(keys)
@@ -640,12 +515,10 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 _alt.embed_path = tuple(_pl)
                 _alt.occupied = frozenset(_occ_a)
                 _alts.append((_ai, _alt, _ct_a))
-            # Rung 1 for ALL alternatives before rung 2 for any: a ceiling
-            # retry lifts the whole frontier by a layer, so an alternative
-            # whose plain MCTS works is always preferable to an earlier
-            # alternative that only works after a ceiling (measured: dj_16
-            # -s 8 gave 567 via a later alternative's MCTS but 648 when
-            # alternative #1's ceiling retry was taken first).
+            # Try the plain search from every alternative before lifting any of
+            # them to a ceiling: a ceiling retry costs a whole layer of height, so
+            # a later alternative that embeds directly beats an earlier one that
+            # only embeds after a ceiling.
             _found = None
             for _tier, _ceiling_mode in (("mcts", False), ("ceiling-retry", True)):
                 for _ai, _alt, _ct_a in _alts:
@@ -697,8 +570,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         random.seed(seed)
                         for key in node_input_connect:
                             random.shuffle(node_input_connect[key])
-                        # Snapshot fix -- see the matching comment on the
-                        # first seed loop above and docs/REFACTOR_LOG.md.
+                        # Per-seed snapshot of the shuffled input order (see the first seed loop).
                         node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                         priority_keys = []
                         for k in keys:
@@ -733,9 +605,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             random.seed(seed)
                             for key in node_input_connect:
                                 random.shuffle(node_input_connect[key])
-                            # Snapshot fix -- see the matching comment on
-                            # the first seed loop above and
-                            # docs/REFACTOR_LOG.md.
+                            # Per-seed snapshot of the shuffled input order (see the first seed loop).
                             node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                             priority_keys = []
                             for k in keys:
@@ -768,27 +638,11 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     # Now we are going to start from the begining of the block and use gate by gate embedding.
                     _tail(f"MAIN i={i} block={block}: ceiling-retry tier returned None too -> gate-by-gate FALLBACK")
                     backup_flag = 1
-                    # First redoing the block optimization
-                    # The gate-by-gate fallback's own layer numbering
-                    # (layer_labeling_block_vanilla) is row-index based and
-                    # resets to 0 per block, and the `for j in range(1,
-                    # len(rows_))` loop below deliberately skips layer 0 --
-                    # the design assumes layer 0 is the *already-embedded*
-                    # frontier handed over from the previous block, which is
-                    # why j==1's input substitution can replace it with
-                    # `qubit_map_pre_layer` wholesale.
-                    #
-                    # But `block_info[block][0]` is this block's *own* first
-                    # row, which the previous block never embedded -- so with
-                    # the un-shifted range, layer 0 landed on real, never-yet-
-                    # embedded nodes and they were silently dropped (confirmed
-                    # against the pre-H-optimization pipeline at commit
-                    # 0ad0e7a: cnot_s_cnot_h_2 at -b 10 lost H_BOX vertices
-                    # 128/133/138 entirely, i.e. 3 whole H gates, because each
-                    # sat exactly on a block's first row). Starting one row
-                    # earlier makes layer 0 genuinely be the previous block's
-                    # last row, restoring the invariant the skip relies on.
-                    # See docs/REFACTOR_LOG.md's dated entry.
+                    # Re-layer this block one row per layer. Layer 0 of the block-local
+                    # layering plays the role of the already-embedded frontier (the
+                    # j == 1 substitution below replaces it wholesale), so the range
+                    # starts one row early: layer 0 must be the previous block's last
+                    # row, not this block's own first row.
                     block_row_start = block_info[block][0]
                     if block_row_start > 0:
                         block_row_start -= 1
@@ -798,35 +652,18 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     delete_singular_nodes(graph_)
                     if spread_num > 0:
                         spread_rows(graph_, spread_num)
-                    # H-gate embedding optimization (see docs/REFACTOR_LOG.md's
-                    # dated entry): `graph_` is a *fresh* graph parsed straight
-                    # from `circuit` (new vertex IDs, unrelated to the outer
-                    # `graph`/`hadamard_edges`), so it needs its own dissolve
-                    # pass and its own edge set.
+                    # `graph_` is a fresh parse of the circuit with its own vertex ids, so
+                    # it gets its own Hadamard dissolution, layering and idling.
                     hadamard_edges_ = dissolve_hadamard_boxes(graph_)
                     layer_labels_ = layer_labeling_block_vanilla(graph_, block_range)
                     layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range, hadamard_edges_)
-                    # The fallback re-derives its own graph_ (no zx_optimization)
-                    # and its own block-scoped layering, so it strands its own
-                    # flags on output-port wires and needs the same backstop.
-                    # It matters: with this call qaoa_16 renders 47/48 (volume
-                    # 4374), without it 44/48 (volume 4698). An earlier removal
-                    # was mis-attributed -- vqe_16 scores 80/82 either way, it
-                    # is simply one of the run-to-run non-deterministic
-                    # benchmarks (its volume moved 3807/3645/3483 across runs).
+                    # The fallback's own layering strands Hadamards on output-port
+                    # wires just like the main pipeline's, so it gets the same
+                    # backstop and the same port alignment.
                     rematerialize_stranded_hadamards(graph_, layer_labels_, hadamard_edges_)
-                    # Same port alignment as docs/prog.py (see
-                    # layering.align_output_ports): a rematerialized box pushes
-                    # one port past the block's other ports, and the j-loop's
-                    # final seal would then miss every other qubit's chain.
                     align_output_ports(graph_, layer_labels_)
-                    # Wire-property model: the fallback's own flagged-edge set
-                    # above only serves idling/rematerialize on graph_. For
-                    # routing decisions, register graph_'s labelled vertices
-                    # (the ones this block embeds, renamed f"{v}_{block}" below)
-                    # into the shared HTable so needs_flip() can place them by
-                    # (qubit, row). Unlabelled vertices are main-pipeline nodes
-                    # already registered from the outer graph.
+                    # Register the block's vertices (renamed f"{v}_{block}" below) in
+                    # the shared HTable so routing can place them by (qubit, row).
                     hadamard_edges.register_graph_labelled(graph_, layer_labels_, f"_{block}")
                     if _h_dbg:
                         with open(_h_dbg, "a") as _fh:
@@ -836,33 +673,15 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     rows_ = set(layer_labels_.values())
                     _tail(f"FALLBACK block={block} at outer i={i}: block_range={block_range} rows_={sorted(rows_)}")
                     if len(rows_) <= 1:
-                        # The loop below is `range(1, len(rows_))`, so a block
-                        # whose own range holds a single layer gives it nothing
-                        # to iterate over. `best_state` is still None from the
-                        # top of this outer iteration, so the function would
-                        # fall all the way through to `return None` -- bypassing
-                        # even the brute-force tier, which is supposed to make
-                        # returning nothing impossible. Confirmed on qaoa_16:
-                        # block 10 covers only the output-boundary row, the
-                        # loop was empty, and operation() returned None with
-                        # `AttributeError: 'NoneType' has no attribute
-                        # 'x_min_floor'` landing in the caller. Such a block has
-                        # no real node to embed anyway (boundaries are never
-                        # embedded), so carry the last good state forward.
+                        # A block holding a single layer (only the output-boundary
+                        # row) has no real node to embed: carry the last good state
+                        # forward instead of leaving the layer loop below empty.
                         best_state = pre_state
-                        # ...but if this is the LAST block, carrying forward is
-                        # not enough: the compile ends when the outer loop runs
-                        # out, and the only two places that run the final
-                        # ceiling seal (`node_output_connect == {}` above and
-                        # in the j-loop below) are both skipped on this path.
-                        # Without the seal every open idle chain to an output
-                        # port is left type 2 / colourless at the top, so no
-                        # H on those wires can render. Measured on qaoa_16
-                        # (job 4772): all 16 output-side H collars vanished
-                        # exactly this way, 44/48 -> 32/48. Seal and return
-                        # here, mirroring the j-loop's own final branch.
+                        # If this is the last block nothing is left for the outer loop to
+                        # visit, so run the final seal here (it otherwise happens only in
+                        # the boundary-only-layer branches).
                         if block == max(layer_to_block.values()):
-                            _tail(f"RETURN bug9-last-block seal block={block} brute_last={brute_last}")
+                            _tail(f"RETURN last-block seal block={block} brute_last={brute_last}")
                             if brute_last:
                                 best_state = seal_brute_frontier(pre_brute_state)
                             else:
@@ -896,25 +715,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                     z_floor = block_max_z
 
                     finished_qubits = []
-                    # P-new fix (unified debugging pass -- see
-                    # docs/ARCHITECTURE.md's bug list and
-                    # docs/REFACTOR_LOG.md's dated entry): this used to be
-                    # `range(1, len(rows_)+1)`, matching
-                    # layer_labeling_block_vanilla()'s old 1-indexed layer
-                    # numbering (boundary nodes at layer 1, so all
-                    # `len(rows_)` layers needed to be visited). Now that
-                    # layer_labeling_block_vanilla() is 0-indexed (layer 0 =
-                    # boundary, matching the main pipeline's
-                    # layer_labeling() convention), the valid real-layer
-                    # range is `range(1, len(rows_))` -- exactly mirroring
-                    # the outer `for i in tqdm(range(1, len(rows))):` loop
-                    # above. The stale `+1` here made this loop walk one
-                    # layer past the block's real end, where layer_info()
-                    # finds nothing and the "no more output connections"
-                    # branch fires -- since that branch does a hard
-                    # `return` from operation() entirely (not just "this
-                    # block is done, move to the next"), this was
-                    # incorrectly ending the whole compile partway through.
+                    # Block-local layers are 0-indexed with layer 0 = the inherited
+                    # frontier, so the layers to embed are 1 .. len(rows_) - 1.
                     for j in range(1, len(rows_)):
                         node_input_connect, node_inter_connect, node_output_connect, node_type = layer_info(graph_, layer_labels_, j)
                         _tail(f"  j={j}/{len(rows_)-1} block={block} nodes={ {str(k): (node_type[k], node_output_connect[k]) for k in node_type} }")
@@ -944,46 +746,9 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             for key in input_values:
                                 if graph_.qubit(key) in qubit_map_pre_layer:
                                     substitute = qubit_map_pre_layer[graph_.qubit(key)]
-                                    # Cross-block H fix (see docs/REFACTOR_LOG.md's
-                                    # dated entry): `key`'s natural predecessor
-                                    # (in graph_'s own raw numbering) is about to
-                                    # be thrown away in favor of `substitute` (the
-                                    # previous block's hand-off id) -- if that
-                                    # natural edge carried a dissolved H, the flag
-                                    # has to move onto the substituted pair, since
-                                    # the natural predecessor id is never used
-                                    # again after this.
-                                    # NB: deliberately only the predecessors
-                                    # `layer_info` actually reports. An earlier
-                                    # attempt also recovered "invisible"
-                                    # predecessors straight from graph_ (same
-                                    # qubit, earlier row, no layer label) when
-                                    # this list came back empty -- that is
-                                    # wrong: such a neighbour need not be the
-                                    # hand-off edge's far end (there can be
-                                    # nodes in between, already accounted for
-                                    # by the previous block), so it
-                                    # double-applies the flip. Measured:
-                                    # qaoa_16 -3 -> -10, grover_6 -1 -> -3.
-                                    # Transfer the H flag onto the hand-off pair --
-                                    # but only when the wire being handed over is
-                                    # NOT already an idle chain. If `substitute`
-                                    # has an `idle_h_track` entry, the main
-                                    # pipeline already walked this wire and folded
-                                    # any H on it into that chain's `h_count`;
-                                    # adding a flag as well makes the chain count
-                                    # the same physical H twice, h_count reaches 2,
-                                    # and the `h_count % 2` test then reads it as
-                                    # H*H = I and cancels the flip outright.
-                                    # Measured on qaoa_16: chain 106->132 closes
-                                    # with h_count=1 on the main-pipeline attempt
-                                    # but h_count=2 in the fallback that supersedes
-                                    # it, which is exactly why that collar vanished
-                                    # (4718 closes across the run read h_count=2).
-                                    # Dropping the transfer altogether is not an
-                                    # option: cnot_s_cnot_h_2 falls back to 17/20
-                                    # and qaoa_16 fails to compile at all.
-                                    # No H flag transfer (wire-property model).
+                                    # Hadamards are keyed by circuit coordinates, so replacing
+                                    # the natural predecessor by the hand-off node needs no
+                                    # Hadamard bookkeeping.
                                     node_input_connect_new[key] = [substitute]
                                 else:
                                     finished_qubits.append(graph_.qubit(key))
@@ -1014,9 +779,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     del node_type[key]
                                     del node_output_connect[key]
 
-                        # `- 1` here (and at the other 2 "last layer of this
-                        # block" checks below) matches the loop bound fix
-                        # above -- see that comment.
+                        # Last layer of the block: every node's wire stays open.
                         if j == len(rows_) - 1:
                             node_output_connect = {k: 1 for k, v in node_output_connect.items()}
                         node_output_connect = {k: v for k, v in node_output_connect.items() if v != 0}
@@ -1061,9 +824,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             random.seed(seed)
                             for key in node_input_connect:
                                 random.shuffle(node_input_connect[key])
-                            # Snapshot fix -- see the matching comment on
-                            # the first seed loop above and
-                            # docs/REFACTOR_LOG.md.
+                            # Per-seed snapshot of the shuffled input order (see the first seed loop).
                             node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                             keys = list(node_type.keys())
                             random.shuffle(keys)
@@ -1086,9 +847,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 random.seed(seed)
                                 for key in node_input_connect:
                                     random.shuffle(node_input_connect[key])
-                                # Snapshot fix -- see the matching comment
-                                # on the first seed loop above and
-                                # docs/REFACTOR_LOG.md.
+                                # Per-seed snapshot of the shuffled input order (see the first seed loop).
                                 node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                 keys = list(node_type.keys())
                                 random.shuffle(keys)
@@ -1133,9 +892,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     random.seed(seed)
                                     for key in node_input_connect:
                                         random.shuffle(node_input_connect[key])
-                                    # Snapshot fix -- see the matching
-                                    # comment on the first seed loop above
-                                    # and docs/REFACTOR_LOG.md.
+                                    # Per-seed snapshot of the shuffled input order (see the first seed loop).
                                     node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                     priority_keys = []
                                     for k in keys:
@@ -1170,9 +927,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                         random.seed(seed)
                                         for key in node_input_connect:
                                             random.shuffle(node_input_connect[key])
-                                        # Snapshot fix -- see the matching
-                                        # comment on the first seed loop
-                                        # above and docs/REFACTOR_LOG.md.
+                                        # Per-seed snapshot of the shuffled input order (see the first seed loop).
                                         node_input_connect_seed = {k: list(v) for k, v in node_input_connect.items()}
                                         priority_keys = []
                                         for k in keys:
@@ -1262,22 +1017,11 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 ceiling_flag = 1
                                 pre_brute_state = best_state
 
-                                # A brute-force layer `continue`s here, skipping the
-                                # reward()/pre_state bookkeeping the MCTS path does
-                                # below -- it has to: basic_embedding leaves every real
-                                # node as `X_old` plus an idle stub `X` at the ceiling,
-                                # and reward()/ceiling() assume the plain-id convention
-                                # (reward() KeyErrors on the stub's missing ori;
-                                # ceiling() would rename `X` over the real `X_old`).
-                                # But every later consumer of `pre_state` -- the final
-                                # seal above all -- then acted on the state from BEFORE
-                                # this layer and the brute-force embedding was silently
-                                # discarded. Measured on qaoa_16 (job 4786,
-                                # TOPOLS_TAIL_DEBUG): block 9's layers 5-6 (T nodes
-                                # 235/237 and their two H boxes) were embedded by
-                                # basic_embedding, then sealed away, so the H at row 70
-                                # never rendered. `brute_last` tells the seal sites to
-                                # use `pre_brute_state` via seal_brute_frontier().
+                                # A brute-force layer skips the reward()/pre_state bookkeeping
+                                # below: basic_embedding stores each real node as `X_old` with
+                                # an idle stub `X` at the ceiling, a convention reward() and
+                                # ceiling() do not understand. `brute_last` tells the seal sites
+                                # to finish from `pre_brute_state` via seal_brute_frontier().
                                 brute_last = True
                                 _tail(f"  j={j} block={block} embedded by BRUTE FORCE (basic_embedding); brute_last=True")
 
@@ -1310,10 +1054,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                 original_key = int(key.split("_")[0])
                                 qubit_index = graph_.qubit(original_key)
                                 qubit_output_map[qubit_index] = key
-                            # See the matching comment above `io_info_`'s
-                            # definition: only actually merges an entry if
-                            # this block turned out to reach that qubit's
-                            # true circuit-final layer.
+                            # Only ports this block actually embedded are merged.
                             io_info.update({k: v for k, v in io_info_.items() if k in best_state.embed_node_pos})
 
                     continue
@@ -1337,12 +1078,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
             prev_candidates = sorted((c for c in layer_candidates if c is not best_state), key=lambda s_: s_.vol)
             prev_candidates_layer = i
 
-    # Falling out of the layer loop means no boundary-only layer was ever
-    # visited, so none of the three `node_output_connect == {}` seal sites
-    # ran and every open idle chain / open output is still colourless at
-    # the top. That must never be how a compile ends (measured: grover_6
-    # lost all 5 output-side H collars this way, job 4795). Seal here with
-    # the same logic as those sites.
+    # Reached only when no boundary-only layer was visited: seal here so that
+    # no compile ends with open, colourless output wires.
     _tail(f"RETURN fall-through at end of operation(): sealing (brute_last={brute_last})")
     if brute_last:
         best_state = seal_brute_frontier(pre_brute_state)

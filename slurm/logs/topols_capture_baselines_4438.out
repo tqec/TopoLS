@@ -1,6 +1,0 @@
-Capturing baselines for: grover_6, qft_16, qpe_16, vqe_16, wstate_16, qaoa_16
-
-=== grover_6 ===
-Captured:     "grover_6": (5.0, 7.0, 656, 22960.0),
-
-=== qft_16 ===

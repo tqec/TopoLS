@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "topols"
 version = "0.1.0"
-description = "Add your description here"
+description = "Lattice surgery compilation via topological program transformations: ZX simplification + MCTS 3D embedding, exporting TQEC block graphs"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -24,12 +24,5 @@ dependencies = [
 dev = [
     "ipykernel>=7.3.0",
     "nbconvert>=7.17.1",
-    "py-spy>=0.4.2",
-    "pytest>=9.1.1",
 ]
 
-[tool.pytest.ini_options]
-markers = [
-    "slow: multi-minute-to-hour benchmark, run explicitly (not on every check)",
-]
-testpaths = ["tests"]
