@@ -128,25 +128,10 @@ the CSV row repeats the metrics. `2tqec.py` writes `result/bgraph/` and
 
 ## 📊 Reproducing the paper
 
-`docs/exp.py` runs the nine benchmarks in the three configurations of the
-paper (Full-Opt, no direction optimization, small blocks). The Full-Opt
-commands use the per-benchmark search budgets below, chosen so that each
-benchmark's volume improves over the uniform `-s 2 -t 2` setting without a
-longer compile time (measured one compile at a time, 16 cores):
-
-| benchmark | `-s 2 -t 2` volume / time | tuned setting | volume / time |
-|---|---|---|---|
-| bv_16 | 486 / 14 s | unchanged | 486 / 14 s |
-| dj_16 | 729 / 17 s | `-s 8 -t 2 --backtrack 3` | **567** / 24 s |
-| ghz_16 | 891 / 61 s | `-s 2 -t 2 --backtrack 1` | **243** / 14 s |
-| vqe_16 | 3888 / 152 s | `-s 4 -t 2 --backtrack 3` | 3645 / 214 s |
-| wstate_16 | 8262 / 159 s | `-s 8 -t 2 --backtrack 1` | 8019 / 171 s |
-| qaoa_16 | 4941 / 261 s | `-s 8 -t 2 --backtrack 3` | **3969** / 230 s |
-| grover_6, qft_16, qpe_16 | — | `-s 2 -t 2` | 22785 / 592 s, 36369 / 1218 s, 39609 / 1321 s |
-
-Volumes are space–time volumes in units of surface-code cubes; wall times
-include compilation only. Run-to-run variation exists because `-t` is a
-wall-clock budget.
+`docs/exp.py` runs the nine benchmarks of the paper in its three TopoLS
+configurations — Full-Opt (`-b 20 -dir 1`), Part-Opt (`-b 20 -dir 0`) and
+Place-Opt (`-b 5 -dir 1`) — with the per-benchmark search settings
+(`-s`, `-t`, `--backtrack`) recorded in the script:
 
 ```bash
 cd docs
@@ -154,8 +139,11 @@ uv run exp.py                  # all three configurations, several hours
 uv run exp.py full             # or any subset of: full part place
 ```
 
-`exp.py` ends with a summary table (volume and compile time per benchmark
-and configuration), also written to `result/topols/summary.csv`.
+Each compile appends a row to `result/topols/result_<config>.csv`, and the
+script ends with a summary table (space–time volume in surface-code cubes
+and compile time per benchmark and configuration), also written to
+`result/topols/summary.csv`. Because `-t` is a wall-clock budget, volumes
+can differ slightly between runs and machines.
 
 ## 🖼 Visualization and simulation
 
@@ -187,9 +175,6 @@ consume directly for simulation and resource evaluation.
 - **Magic states.** All magic-state gates are treated as T gates, since
   they share the same execution pattern in lattice surgery; translate other
   magic gates to T before compiling.
-- **Run-to-run variation.** `-t` is a wall-clock budget, so volumes can
-  differ slightly between runs and machines; the deterministic small
-  benchmarks (bv_16, dj_16, ghz_16) reproduce exactly.
 
 ## 📖 Citation
 
