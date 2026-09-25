@@ -135,6 +135,14 @@ impl PyRandom {
         }
     }
 
+    /// Rebuild from `random.getstate()`'s 624 words and index.
+    pub fn from_state(words: &[u32], index: usize) -> PyRandom {
+        assert_eq!(words.len(), N);
+        let mut mt = [0u32; N];
+        mt.copy_from_slice(words);
+        PyRandom { mt, index }
+    }
+
     /// The first words of the MT state and the index (for tests against
     /// `random.getstate()`).
     pub fn state_words(&self) -> (&[u32; N], usize) {

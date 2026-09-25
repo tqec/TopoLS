@@ -6,6 +6,7 @@
 //! exactly (same iteration orders, same RNG, same work-unit budget), so a
 //! compile returns the same result as the Python reference.
 
+pub mod embedding;
 pub mod geometry;
 pub mod pyrandom;
 pub mod routing;
