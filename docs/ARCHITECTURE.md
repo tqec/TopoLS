@@ -92,11 +92,16 @@ spider to carry the flip.
 
 ### Anytime search and search budget
 
-`mcts()` runs until either `-i` iterations or `-t` seconds per call are
-spent and returns the best complete layer embedding seen. Given the random
-seed and the starting state, the sequence of iterations is deterministic,
-so a longer budget extends the same search and cannot return a worse
-layer. Several seeds (`-s`) are searched in parallel processes and the
+`mcts()` runs until either `-i` iterations or the `-t` budget per call is
+spent and returns the best complete layer embedding seen. The budget is
+expressed in *work*: A* expansions (`routing.astar.WORK`) plus a fixed
+cost per placement, calibrated so that `-t 1` is about one second on the
+reference machine. Because neither the budget nor A*'s give-up rule uses
+the wall clock, a compile is reproducible on any machine, and a faster
+implementation of the same search finishes sooner rather than searching
+more. Given the random seed and the starting state, the sequence of
+iterations is deterministic, so a longer budget extends the same search
+and cannot return a worse layer. Several seeds (`-s`) are searched in parallel processes and the
 best is kept; each seed gets its own snapshot of the shuffled input order.
 
 Selecting the best layer greedily can occasionally pick a state from which

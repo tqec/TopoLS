@@ -9,7 +9,7 @@ import random
 import numpy as np
 
 from topols.geometry import add, bounding_box, vector
-from topols.routing.astar import shortest_path
+from topols.routing.astar import NEXT_STATE_COST, WORK, shortest_path
 from topols.routing.boundary import route_to_ceiling, route_single_T_to_boundary
 from topols.routing.color_algebra import AXIS_OFFSETS, ORI_MAP, color_switch, edge_tracer
 from topols.embedding.ports import auto_ports
@@ -913,9 +913,7 @@ class EmbeddingState:
             wire cannot be routed colour-consistently.
         """
 
-        # --------------------------------------------------
-        # Local references and shallow copies of state
-        # --------------------------------------------------
+        WORK[0] += NEXT_STATE_COST   # fixed cost of a placement, on top of its A* work
 
         ori_map = ORI_MAP
         axis_offsets = AXIS_OFFSETS

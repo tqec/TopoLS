@@ -372,7 +372,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
         rows: set of layer indices; q_num: number of qubits.
         z_floor: z of the first layer.
         seed_init_tuple: `(first_seed, seed_step)`.
-        time_bound, iter_num: per-MCTS-call wall-clock (s) and iteration budget.
+        time_bound, iter_num: per-MCTS-call budget -- seconds of search work
+            on the reference machine (see `embedding.mcts.mcts`) and iterations.
         move_num: candidate placements per node in the second search pass.
         length: qubits per row of the port grid.
         dir_opt: 1 to run the second (direction-optimising) pass.

@@ -6,6 +6,12 @@ wall-clock budget.
 import math
 import time
 
+from topols.routing.astar import WORK, WORK_PER_SECOND
+
+# The wall clock is only a safety net: a call may run this many times its
+# budget in real seconds before it is stopped regardless of work done.
+SAFETY_FACTOR = 10
+
 # ---------------------------------------------------------------------------
 # Optional diagnostics: a caller may set STATS_SINK to a list to record, per
 # mcts() call, how many iterations completed and whether the wall-clock budget
@@ -124,16 +130,21 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
 
     Standard UCT loop (select, expand one child, greedy rollout, back up)
     over `EmbeddingState`s, stopped by whichever of `iters` iterations or
-    `time_limit` seconds comes first. The search is *anytime*: for a fixed
-    random state and `root_state` the iteration sequence is deterministic,
-    and the result is the best complete state seen anywhere (in the tree
-    or in a rollout), so a larger budget never returns a worse state.
+    the work budget comes first. The budget is `time_limit` seconds of
+    search work on the reference machine, measured in A* expansions
+    (`routing.astar.WORK`), so a call does the same work -- and returns
+    the same result -- on any machine; the real clock only acts as a
+    safety net. The search is *anytime*: for a fixed random state and
+    `root_state` the iteration sequence is deterministic, and the result
+    is the best complete state seen anywhere (in the tree or in a
+    rollout), so a larger budget never returns a worse state.
 
     Args:
         root_state: `EmbeddingState` with the previous layer embedded and
             nothing of the current layer placed yet.
         iters: maximum number of iterations.
-        time_limit: wall-clock budget in seconds (None = unlimited).
+        time_limit: work budget, in seconds of reference-machine search
+            (None = unlimited).
         move_num: number of candidate placements generated per node
             (`EmbeddingState.moves(num=...)`).
         block_switch, ceiling_switch: passed to `moves`; the first block
@@ -146,13 +157,15 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
         the layer.
     """
     root = MCTSNode(root_state, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
-    end_time = time.time() + (time_limit if time_limit else 1e9)
+    work_budget = time_limit * WORK_PER_SECOND if time_limit else float("inf")
+    work_start = WORK[0]
+    deadline = time.time() + (SAFETY_FACTOR * time_limit if time_limit else 1e9)
 
     best_rollout = -1e9
     best_rollout_state = None
 
     for i in range(iters):
-        if time.time() > end_time:
+        if WORK[0] - work_start >= work_budget or time.time() > deadline:
             if STATS_SINK is not None:
                 STATS_SINK.append({"iters_completed": i, "iters_requested": iters, "search_bound": True, "layer": layer})
             break

@@ -108,15 +108,17 @@ in the `topols` package (`topols.pipeline.prepare_graph`,
 | `-dir 0/1` | direction (orientation) optimization off/on |
 | `-l N` | qubits per row of the 2D footprint (e.g. 4 for 16 qubits) |
 | `-r N`, `-s K` | first random seed, and how many consecutive seeds to search in parallel |
-| `-t SEC` | wall-clock budget per MCTS call (each layer, each seed) |
+| `-t SEC` | search budget per MCTS call (each layer, each seed), in seconds of work on the reference machine; the budget is counted in A* expansions, so results do not depend on the machine's speed |
 | `-i N` | maximum MCTS iterations per call |
 | `--backtrack K` | when a layer cannot be embedded from the best previous-layer state, retry it from up to K of the other seeds' previous-layer states before falling back to coarser strategies (0 = off) |
 | `-sp N` | for dense circuits: spread gates over rows so that no row holds more than N gates (0 = off) |
 | `-csv NAME` | append the metrics row to `result/topols/NAME.csv` |
 
-The search is *anytime*: for a fixed seed and starting state the sequence
-of MCTS iterations is deterministic, so a larger `-t` or `-i` only extends
-the same search and cannot return a worse layer. More seeds (`-s`) explore
+The search is *anytime* and deterministic: for a fixed seed and starting
+state the sequence of MCTS iterations is fixed and the budget is counted
+in units of work rather than wall-clock time, so a compile reproduces
+exactly on any machine, and a larger `-t` or `-i` only extends the same
+search and cannot return a worse layer. More seeds (`-s`) explore
 independent searches in parallel (one process per seed, up to the CPUs
 available) and keep the best; `--backtrack` guards against a low-volume
 layer state that turns out to be a dead end for the next layer.
@@ -142,8 +144,7 @@ uv run exp.py full             # or any subset of: full part place
 Each compile appends a row to `result/topols/result_<config>.csv`, and the
 script ends with a summary table (space–time volume in surface-code cubes
 and compile time per benchmark and configuration), also written to
-`result/topols/summary.csv`. Because `-t` is a wall-clock budget, volumes
-can differ slightly between runs and machines.
+`result/topols/summary.csv`.
 
 ## 🖼 Visualization and simulation
 

@@ -1,15 +1,31 @@
 """Grid A* routing: shortest Manhattan paths between cells that avoid
 occupied cells and respect the footprint, a floor and (optionally) a
-ceiling. Every variant gives up after a short wall-clock timeout so that a
-hopeless route cannot stall the search.
+ceiling. Every variant gives up after a fixed number of expansions so that
+a hopeless route cannot stall the search, and every expansion is counted
+in `WORK`, the unit search budgets are expressed in.
 """
 
 import heapq
-import time
 
 # The vector arithmetic (`add`, `manhattan` from topols.geometry) is inlined
 # in the loops below: these three variants are the most-called code in the
 # compiler and the call overhead was measurable.
+
+# Deterministic work counter, one unit per A* expansion (heap pop). It is the
+# machine-independent measure of search effort that budgets are expressed in
+# (see embedding.mcts); other hot spots add fixed costs to it. Per process.
+WORK = [0]
+
+# Calibration of the work unit on the reference machine: expansions per
+# second, and the fixed cost (in expansions) charged for one
+# EmbeddingState.next_state call on top of its A* work. A budget of `t`
+# seconds means `t * WORK_PER_SECOND` units of work on any machine.
+WORK_PER_SECOND = 210000
+NEXT_STATE_COST = 3
+
+# Expansion caps of the A* variants (formerly 0.1 s and 1 ms wall-clock timeouts).
+ASTAR_MAX_EXPANSIONS = int(0.1 * WORK_PER_SECOND)
+ASTAR_BASE_MAX_EXPANSIONS = int(1e-3 * WORK_PER_SECOND)
 
 directions = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]
 
@@ -21,7 +37,7 @@ def shortest_path_with_zmax(
     idle_place=None,
     ceiling_z=None,
     mask_node=None,
-    timeout=1e-1
+    max_expansions=None
 ):
     """A* shortest path from `src` to `dst` on the 3D grid, with a hard z ceiling.
 
@@ -42,20 +58,20 @@ def shortest_path_with_zmax(
         ceiling_z: additional upper limit on z (None = none).
         mask_node: idle whose column is *not* blocked -- the idle being
             connected to.
-        timeout: wall-clock budget in seconds; the search also stops after
-            100000 expansions.
+        max_expansions: give up after this many expansions (default
+            `ASTAR_MAX_EXPANSIONS`).
 
     Returns:
         The list of cells from `src` to `dst` inclusive, or None if no path
         was found within the budget.
     """
+    if max_expansions is None:
+        max_expansions = ASTAR_MAX_EXPANSIONS
 
     # Optionally remove a masked node from idle_place
     if mask_node is not None and idle_place is not None and mask_node in idle_place:
         idle_place = dict(idle_place)  # copy to avoid mutating external state
         del idle_place[mask_node]
-
-    start_time = time.time()
 
     # Initial A* heuristic (Manhattan distance in 3D)
     h = abs(src[0]-dst[0]) + abs(src[1]-dst[1]) + abs(src[2]-dst[2])
@@ -67,12 +83,9 @@ def shortest_path_with_zmax(
     count = 0
 
     while open_q:
-        # Abort if search exceeds time budget
-        if time.time() - start_time > timeout:
-            return None
-
         # Expand node with lowest estimated total cost
         f, g, p, parent = heapq.heappop(open_q)
+        WORK[0] += 1
 
         # Lazy deletion: a cell may have stale heap entries once a cheaper
         # path to it is found. `seen[p]` holds the best known g, so skip
@@ -125,9 +138,9 @@ def shortest_path_with_zmax(
                 seen[q] = g2
                 heapq.heappush(open_q, (g2 + abs(q[0]-dst[0]) + abs(q[1]-dst[1]) + abs(q[2]-dst[2]), g2, q, p))
 
-        # Safety cap to prevent pathological exploration
-        count = count + 1
-        if count > 100000:
+        # Deterministic cap on the search effort
+        count += 1
+        if count > max_expansions:
             return None
 
     return None
@@ -140,7 +153,7 @@ def shortest_path(
     idle_place=None,
     ceiling_z=None,
     mask_node=None,
-    timeout=1e-1
+    max_expansions=None
 ):
     """A* shortest path from `src` to `dst` (see `shortest_path_with_zmax` for
     the arguments and the return value).
@@ -149,6 +162,8 @@ def shortest_path(
     it finds the paths that do not need to rise above the current layer),
     then, if that fails, an unbounded one with the same constraints.
     """
+    if max_expansions is None:
+        max_expansions = ASTAR_MAX_EXPANSIONS
 
     # Infer maximum occupied height from current environment
     positions = list(occupied)
@@ -156,7 +171,7 @@ def shortest_path(
     z_max_floor = max(zs)
 
     # Phase 1: attempt fast path planning with explicit z-bound
-    path = shortest_path_with_zmax(src, dst, occupied, z_floor, z_max_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place=idle_place, ceiling_z=ceiling_z, mask_node=mask_node, timeout=timeout)
+    path = shortest_path_with_zmax(src, dst, occupied, z_floor, z_max_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place=idle_place, ceiling_z=ceiling_z, mask_node=mask_node, max_expansions=max_expansions)
     if path is not None:
         return path
 
@@ -166,8 +181,6 @@ def shortest_path(
     if mask_node is not None and idle_place is not None and mask_node in idle_place:
         idle_place = dict(idle_place)  # make a copy to avoid side effects
         del idle_place[mask_node]
-
-    start_time = time.time()
 
     # Initial A* heuristic
     h = abs(src[0]-dst[0]) + abs(src[1]-dst[1]) + abs(src[2]-dst[2])
@@ -179,12 +192,9 @@ def shortest_path(
     count = 0
 
     while open_q:
-        # Enforce time budget
-        if time.time() - start_time > timeout:
-            return None
-
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
+        WORK[0] += 1
 
         # Skip stale heap entries (see shortest_path_with_zmax).
         if g > seen[p]:
@@ -234,9 +244,9 @@ def shortest_path(
                 seen[q] = g2
                 heapq.heappush(open_q, (g2 + abs(q[0]-dst[0]) + abs(q[1]-dst[1]) + abs(q[2]-dst[2]), g2, q, p))
 
-        # Hard cap to avoid excessive exploration
-        count = count + 1
-        if count > 100000:
+        # Deterministic cap on the search effort
+        count += 1
+        if count > max_expansions:
             return None
 
     return None
@@ -249,7 +259,7 @@ def shortest_path_base(
     z_search,
     x_min_floor, x_max_floor,
     y_min_floor, y_max_floor,
-    timeout=1e-3
+    max_expansions=None
 ):
     """A* shortest path within the single horizontal plane `z = z_search`.
 
@@ -265,18 +275,18 @@ def shortest_path_base(
         z_search: the plane to route in.
         x_min_floor, x_max_floor, y_min_floor, y_max_floor: footprint limits
             (inclusive); `target_2` is exempt.
-        timeout: wall-clock budget in seconds; also stops after 10000
-            expansions.
+        max_expansions: give up after this many expansions (default
+            `ASTAR_BASE_MAX_EXPANSIONS`).
 
     Returns:
         The list of cells from `target_1` to `target_2` inclusive, or None.
     """
+    if max_expansions is None:
+        max_expansions = ASTAR_BASE_MAX_EXPANSIONS
 
     # Project both targets onto the specified search layer
     target_1 = (target_1[0], target_1[1], z_search)
     target_2 = (target_2[0], target_2[1], z_search)
-
-    start_time = time.time()
 
     # Initial heuristic based on Manhattan distance in the plane
     h = abs(target_1[0]-target_2[0]) + abs(target_1[1]-target_2[1]) + abs(target_1[2]-target_2[2])
@@ -288,12 +298,9 @@ def shortest_path_base(
     count = 0
 
     while open_q:
-        # Abort search if time budget is exceeded
-        if time.time() - start_time > timeout:
-            return None
-
         # Expand node with lowest estimated cost
         f, g, p, parent = heapq.heappop(open_q)
+        WORK[0] += 1
 
         # Skip stale heap entries (see shortest_path_with_zmax).
         if g > seen[p]:
@@ -330,9 +337,9 @@ def shortest_path_base(
                 seen[q] = g2
                 heapq.heappush(open_q, (g2 + abs(q[0]-target_2[0]) + abs(q[1]-target_2[1]) + abs(q[2]-target_2[2]), g2, q, p))
 
-        # Safety cap to prevent excessive exploration
-        count = count + 1
-        if count > 10000:
+        # Deterministic cap on the search effort
+        count += 1
+        if count > max_expansions:
             return None
 
     return None

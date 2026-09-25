@@ -34,7 +34,7 @@ parser.add_argument('--random_seed', '-r', type=int, default=0,
 parser.add_argument('--seed_step', '-s', type=int, default=5,
                     help='number of consecutive seeds searched in parallel')
 parser.add_argument('--time_bound', '-t', type=float, default=3,
-                    help='wall-clock budget (seconds) per MCTS call; the search is anytime')
+                    help='search budget per MCTS call, in seconds of work on the reference machine (machine-independent; the search is anytime)')
 parser.add_argument('--iter_num', '-i', type=int, default=10000,
                     help='maximum MCTS iterations per call')
 parser.add_argument('--saving_name', '-csv', default='result',
