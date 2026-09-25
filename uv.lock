@@ -1964,7 +1964,7 @@ wheels = [
 
 [[package]]
 name = "pyzx"
-version = "0.10.3"
+version = "0.10.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ipywidgets" },
@@ -1974,9 +1974,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4a/40/fce9ba05b9a874e486de4a2d9092898b219f75368ce758dd5a9a26428535/pyzx-0.10.3.tar.gz", hash = "sha256:8c9e2c2d7baddefaed5962e8dc6bc638d3ff678d0d7bb8ee6f4bfd0a79e912be", size = 530196, upload-time = "2026-06-01T14:55:06.857Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/79/eb5d252a73408b894fc7a34c88cd403baeaf91f5957ee8d27eefa3fd718e/pyzx-0.10.6.tar.gz", hash = "sha256:ba770fb71ba84f8a9d8604246b21f87bf4dfafdcc4c01d480424e566fc1f4c6a", size = 548797, upload-time = "2026-09-01T13:50:46.17Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/b2/c89625790e919cb8bfa17d8131870c5ceccdbb44b517b8d7eec0fbf54304/pyzx-0.10.3-py3-none-any.whl", hash = "sha256:70915d35350aaa48161cf185979f48d225c10221570d40569214873d7ccd873c", size = 566325, upload-time = "2026-06-01T14:55:05.221Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/c8/1284142d46cd8f1ae9418aae5494050d74eadc2891b0b81e73cca4b214ed/pyzx-0.10.6-py3-none-any.whl", hash = "sha256:3e98a54b5da2385e5dea5754c0d1b57c4a5dc1c9bc5eb1a1eaee4115deb324d9", size = 576349, upload-time = "2026-09-01T13:50:44.171Z" },
 ]
 
 [[package]]
@@ -2819,7 +2819,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3,<3.0" },
     { name = "plotly", specifier = ">=7.1.0" },
     { name = "pyvista", specifier = "==0.48.1" },
-    { name = "pyzx", specifier = "==0.10.3" },
+    { name = "pyzx", specifier = "==0.10.6" },
     { name = "sinter", specifier = "==1.15.0" },
     { name = "tqdm", specifier = ">=4.68.2,<4.71" },
     { name = "tqec", specifier = ">=0.1.0" },
