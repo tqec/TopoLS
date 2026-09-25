@@ -67,3 +67,10 @@ impl Floors {
         x >= self.x_min.unwrap() && x <= self.x_max.unwrap() && y >= self.y_min.unwrap() && y <= self.y_max.unwrap()
     }
 }
+
+/// The cells strictly between a path's two ends (Python `path[1:-1]`; empty
+/// for paths shorter than two cells).
+#[inline]
+pub fn interior(path: &[Cell]) -> &[Cell] {
+    if path.len() < 2 { &[] } else { &path[1..path.len() - 1] }
+}

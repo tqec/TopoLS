@@ -298,7 +298,7 @@ impl EmbeddingState {
                     path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
                 }
             }
-            for q in &path[1..path.len() - 1] {
+            for q in crate::geometry::interior(&path) {
                 occ.insert(*q);
             }
             paths.push(path.clone());
@@ -331,7 +331,7 @@ impl EmbeddingState {
         if ori[&dst] != ori_map(ld, ct, if dst_typ == 1 { 1 } else { 0 }) {
             path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
         }
-        for q in &path[1..path.len() - 1] {
+        for q in crate::geometry::interior(&path) {
             occ.insert(*q);
         }
         Some(path)
@@ -364,7 +364,7 @@ impl EmbeddingState {
             path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
         }
         track.shift_remove(&src);
-        for q in &path[1..path.len() - 1] {
+        for q in crate::geometry::interior(&path) {
             occ.insert(*q);
         }
         Some(path)
@@ -396,7 +396,7 @@ impl EmbeddingState {
             path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
         }
         track.shift_remove(&dst);
-        for q in &path[1..path.len() - 1] {
+        for q in crate::geometry::interior(&path) {
             occ.insert(*q);
         }
         Some(path)
@@ -429,7 +429,7 @@ impl EmbeddingState {
         }
         track.shift_remove(&src);
         track.shift_remove(&dst);
-        for q in &path[1..path.len() - 1] {
+        for q in crate::geometry::interior(&path) {
             occ.insert(*q);
         }
         Some(path)
@@ -514,7 +514,7 @@ impl EmbeddingState {
                     }
                     let idle_cells = idle_cells_masked(&idle_place, Some(input));
                     let path = shortest_path(coord, pos[&input], &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-                    for q in &path[1..path.len() - 1] {
+                    for q in crate::geometry::interior(&path) {
                         occ.insert(*q);
                     }
                     paths.push(path.clone());
@@ -578,7 +578,7 @@ impl EmbeddingState {
                             track.insert(node, new);
                             track.shift_remove(&inp);
                         }
-                        for q in &path[1..path.len() - 1] {
+                        for q in crate::geometry::interior(&path) {
                             occ.insert(*q);
                         }
                         paths.push(path);
@@ -771,7 +771,7 @@ impl EmbeddingState {
             };
             ceiling_track.insert(node, entry);
             occ_ceiling.insert(target);
-            for q in &path[1..path.len() - 1] {
+            for q in crate::geometry::interior(&path) {
                 occ_ceiling.insert(*q);
             }
         }

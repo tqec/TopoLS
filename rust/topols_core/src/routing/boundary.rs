@@ -137,7 +137,7 @@ pub fn route_single_t_to_boundary(
             continue;
         }
         if let Some(path) = shortest_path(exit, target, &occ_tmp, z_floor, floors, idle_cells, Some(ceiling_z), None) {
-            for q in &path[1..path.len() - 1] {
+            for q in crate::geometry::interior(&path) {
                 occ.insert(*q);
             }
             return TExit { target: Some(target), path: Some(path), ori: None };
