@@ -107,6 +107,7 @@ def simulate(name, result_dir="result", num_workers=16):
 
 
 def main(argv=None):
+    """Command-line entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--file_name", "-f", default="quantum_circuit",
                         help="block graph name (result/bgraph/<name>.bgraph)")

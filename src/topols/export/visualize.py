@@ -127,13 +127,13 @@ def draw_connected_edge(
     cube_half = cube_size / 2
     edge_thickness = cube_size
 
-    # 1. compute edge geometry (you are correct now)
+    # pipe geometry between the two cube faces
     s, e = edge_endpoints(p1, p2, cube_half)
     axis = edge_axis(p1, p2)
     mid = midpoint(s, e)
     edge_length = 1 - 2 * cube_half
 
-    # 2. which side has tqec
+    # which endpoints are typed cubes (S/T stubs and pipe cells have no type)
     has1 = node1["tqec"] is not None
     has2 = node2["tqec"] is not None
 

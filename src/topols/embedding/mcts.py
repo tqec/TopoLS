@@ -148,11 +148,6 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
     root = MCTSNode(root_state, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
     end_time = time.time() + (time_limit if time_limit else 1e9)
 
-    time_sel = 0
-    time_exp = 0
-    time_sim = 0
-    time_bac = 0
-    rollout_suc = 0
     best_rollout = -1e9
     best_rollout_state = None
 
@@ -165,14 +160,10 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
         node = root
 
         # 1. Selection
-        t0 = time.time()
         while not node.untried and node.children:
             node = node.uct_select_child()
-        t1 = time.time()
-        time_sel = time_sel + (t1-t0)
 
         # 2. Expansion
-        t0 = time.time()
         if node.untried:
             move = node.untried.pop()
             nxt_state = node.state.next_state(move)
@@ -180,11 +171,8 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
                 continue
             node = MCTSNode(nxt_state, parent=node, move_num=move_num, block_switch=block_switch, ceiling_switch=ceiling_switch)
             node.parent.children.append(node)
-        t1 = time.time()
-        time_exp = time_exp + (t1-t0)
 
         # 3. Simulation
-        t0 = time.time()
         if (ENABLE_INLOOP_REWARD_CACHE
                 and node.cached_reward is not _UNSET
                 and node.state.is_terminal()):
@@ -207,19 +195,12 @@ def mcts(root_state, iters=10000, time_limit=None, obj=None, move_num=None, bloc
             if reward > best_rollout:
                 best_rollout = reward
                 best_rollout_state = rollout_state
-        t1 = time.time()
-        time_sim = time_sim + (t1-t0)
-        if reward > -1e9:
-            rollout_suc = rollout_suc + 1
 
-        # 4. Back‑propagation
-        t0 = time.time()
+        # 4. Back-propagation
         while node:
             node.visits += 1
             node.value += reward
             node = node.parent
-        t1 = time.time()
-        time_bac = time_bac + (t1-t0)
     else:
         # Loop completed without `break` -- iters-bound, not search-bound.
         if STATS_SINK is not None:

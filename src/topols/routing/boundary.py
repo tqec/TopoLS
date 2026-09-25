@@ -7,11 +7,14 @@ from topols.routing.color_algebra import AXIS_OFFSETS
 
 
 def lifting_path(path):
-    """
-    Lifts a path upward by one unit after the first detected horizontal turn.
+    """Raise everything after the first horizontal corner of `path` by one z.
 
-    This is used to avoid collisions or conflicts at corner points by elevating
-    the remaining segment of the path.
+    At the first cell where the x-y direction changes, a vertical step is
+    inserted and the rest of the path is copied one cell higher, so a CNOT
+    connection that must bend does so on the level above its endpoints.
+
+    Returns:
+        The lifted path, or None if `path` has no corner.
     """
 
     for i in range(1, len(path) - 1):
@@ -41,12 +44,8 @@ def lifting_path(path):
             return lifted_path
 
 def vertical_z_path(pos1, pos2):
-    """
-    Generates a vertical path between two positions by varying only the z-coordinate.
-
-    The returned path keeps x and y fixed and moves stepwise from the z-value of
-    pos1 to that of pos2 (inclusive).
-    """
+    """Straight vertical path from `pos1` to the z of `pos2`, both ends
+    inclusive; x and y are taken from `pos1`."""
     x, y, z1 = pos1
     _, _, z2 = pos2
     step = 1 if z2 > z1 else -1
@@ -55,13 +54,11 @@ def vertical_z_path(pos1, pos2):
 
 
 def route_to_ceiling(start, occ, target, z_floor, ceiling_z, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
-    """
-    Attempts to route from a start position to a target position while
-    respecting a ceiling height constraint.
+    """Route from `start` to a ceiling cell `target` without rising above `ceiling_z`.
 
-    The function temporarily excludes the start and target from occupancy
-    to allow valid entry and exit, and returns the path together with the
-    target if routing succeeds.
+    `start` and `target` are removed from the occupancy copy so the path may
+    enter them. Returns `(path, target)` or None if `target` is occupied or
+    no path exists.
     """
 
     # Target must not be initially occupied
@@ -90,18 +87,33 @@ def route_single_T_to_boundary(
     region_size=3,
     idle_place=None
 ):
-    """
-    Routes a single T-gate exit point to the nearest boundary region.
+    """Route a T gate's exit to the nearest side of the footprint.
 
-    The function selects the closest boundary plane, constructs a small
-    candidate region on that boundary, and attempts to route the exit
-    point to one of the region targets using constrained path planning.
+    T gates are implemented by injecting a magic state from outside the
+    footprint, so every T node needs a pipe to the boundary one cell outside
+    the x/y floor limits. The nearest of the four sides is chosen and a
+    `region_size x region_size` patch of boundary cells around the exit's
+    projection is tried in order.
 
-    Returns
-    -------
-    tuple
-        (new_exit_point, full_path, updated_occ, new_ori) if routing succeeds;
-        (None, None, occ, ori) otherwise.
+    Args:
+        exit_point: current end of the T node's exit wire (the node itself if
+            nothing has been routed yet).
+        occ: occupied cells; the interior of the new path is added to this set
+            in place.
+        occ_ceiling: cells reserved by the layer's ceiling routing (also
+            avoided, not modified).
+        z_floor, ceiling_z: vertical limits for the path.
+        x_min_floor, x_max_floor, y_min_floor, y_max_floor: footprint limits.
+        ori: orientation of the T node when `exit_point` is the node itself
+            (the two cells along that axis are then blocked so the pipe leaves
+            through a coloured face); 0 once the exit has been routed before.
+        region_size: side of the boundary patch to try.
+        idle_place: idle columns to avoid (see `astar.shortest_path`).
+
+    Returns:
+        `(target, path, occ, 0)` on success -- `target` is the boundary cell
+        reached and `path` runs from `exit_point` to it -- or
+        `(None, None, occ, ori)` if no candidate could be reached.
     """
 
     # Expand routing bounds slightly to allow boundary attachment

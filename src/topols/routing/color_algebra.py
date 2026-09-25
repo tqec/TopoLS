@@ -1,10 +1,11 @@
+"""Colour algebra of pipes: how a cube's colouring propagates along a
+routed path (`edge_tracer`) and how to change it by re-routing a corner
+(`color_switch`), plus the shared lookup tables.
+"""
+
 from itertools import groupby
 
 from topols.geometry import add, neg, vector
-
-# ---------------------------------------------------------------------------
-# Utility functions for pipe processing
-# ---------------------------------------------------------------------------
 
 # A cube's colouring is encoded as an orientation `ori` in {'i', 'j', 'k'}
 # (the axis whose two faces carry the odd colour) plus a type in {0, 1}
@@ -54,25 +55,18 @@ AXIS_OFFSETS = {
 
 
 def edge_tracer(path, node_init):
-    """
-    Traces a pipe path and determines the resulting node type and exit direction.
+    """Follow a pipe from a cube and report the colour it carries at the far end.
 
-    The function walks the path once in O(n) time, collapsing consecutive
-    collinear segments and applying precomputed transition rules at each
-    directional change.
+    Args:
+        path: cells of the pipe, starting at the cube's own cell and ending
+            at the far end (at least two cells).
+        node_init: `(ori, type)` of the starting cube -- its orientation
+            ('i'/'j'/'k') and 0 for a Z-type (1 for an X-type) colouring.
 
-    Parameters
-    ----------
-    path : list of tuple
-        A sequence of 3D grid points representing a pipe path.
-    node_init : tuple
-        Initial node orientation and face information.
-
-    Returns
-    -------
-    tuple
-        (final_node_type, last_direction), where last_direction is one of
-        {'i', 'j', 'k'}.
+    Returns:
+        `(type, last_axis)`: the colour type carried into the last cell and
+        the axis of the last segment. `ORI_MAP[(last_axis, type, node_type)]`
+        is then the orientation the cube at the far end must have.
     """
     if len(path) < 2:
         raise ValueError("Path must contain at least two points to form an edge.")
@@ -101,13 +95,23 @@ def edge_tracer(path, node_init):
 
 
 def color_switch(path, occupied, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor):
-    """
-    Attempts to locally reroute a path at a corner by inserting a parallel
-    offset segment.
+    """Change the colour a pipe delivers by adding a detour at one of its corners.
 
-    This operation performs a local "color switch" that preserves path
-    connectivity while avoiding collisions, typically used to resolve
-    conflicts between overlapping or adjacent paths.
+    Every bend of a pipe may change the colour type it carries (`RULES`). When
+    the colour arriving at the far end of `path` does not match the cube
+    there, this inserts two extra cells next to a corner -- one step sideways
+    before (or after) the bend -- which adds two bends and flips the delivered
+    colour. Corners are tried in order and the first legal detour is used.
+
+    Args:
+        path: the routed pipe (at least five cells).
+        occupied: cells that the detour may not use; `path` itself is also
+            avoided.
+        z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor: limits
+            the detour cells must respect.
+
+    Returns:
+        The new path (two cells longer), or None if no corner admits a detour.
     """
 
     # Copy inputs to avoid side effects.

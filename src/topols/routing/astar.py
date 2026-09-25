@@ -1,10 +1,12 @@
+"""Grid A* routing: shortest Manhattan paths between cells that avoid
+occupied cells and respect the footprint, a floor and (optionally) a
+ceiling. Every variant gives up after a short wall-clock timeout so that a
+hopeless route cannot stall the search.
+"""
+
 import heapq
 import time
 
-# ---------------------------------------------------------------------------
-# Shortest Manhattan path avoiding occupied cells (A* with tie‑breaking)
-# ---------------------------------------------------------------------------
-#
 # The vector arithmetic (`add`, `manhattan` from topols.geometry) is inlined
 # in the loops below: these three variants are the most-called code in the
 # compiler and the call overhead was measurable.
@@ -21,12 +23,31 @@ def shortest_path_with_zmax(
     mask_node=None,
     timeout=1e-1
 ):
-    """
-    Computes a shortest path between two 3D grid nodes using A* search while
-    respecting spatial boundaries, height constraints, and dynamic obstacles.
+    """A* shortest path from `src` to `dst` on the 3D grid, with a hard z ceiling.
 
-    Returns the path as a list of nodes if found within the time limit,
-    otherwise returns None.
+    Moves are unit steps along the six axis directions; path length is the
+    number of steps.
+
+    Args:
+        src, dst: `(x, y, z)` cells. `dst` may lie outside the floor/footprint
+            limits (it is exempt from those checks) but not in `occupied`.
+        occupied: set of cells that cannot be entered.
+        z_floor: cells with z below this are forbidden.
+        z_max_floor: cells with z above this are forbidden.
+        x_min_floor, x_max_floor, y_min_floor, y_max_floor: footprint limits
+            (inclusive); None disables a limit.
+        idle_place: `{node: (x, y, z)}` of placed idles; every cell in the
+            column above an idle (same x, y and z >= its z) is blocked, since
+            an idle chain continues straight up.
+        ceiling_z: additional upper limit on z (None = none).
+        mask_node: idle whose column is *not* blocked -- the idle being
+            connected to.
+        timeout: wall-clock budget in seconds; the search also stops after
+            100000 expansions.
+
+    Returns:
+        The list of cells from `src` to `dst` inclusive, or None if no path
+        was found within the budget.
     """
 
     # Optionally remove a masked node from idle_place
@@ -121,11 +142,12 @@ def shortest_path(
     mask_node=None,
     timeout=1e-1
 ):
-    """
-    Computes a shortest path between two 3D grid nodes using a two-phase A* strategy.
+    """A* shortest path from `src` to `dst` (see `shortest_path_with_zmax` for
+    the arguments and the return value).
 
-    The function first attempts a constrained search with an adaptive z-maximum
-    for efficiency, and falls back to a more general search if no path is found.
+    Two phases: first a search bounded by the highest occupied z (fast, and
+    it finds the paths that do not need to rise above the current layer),
+    then, if that fails, an unbounded one with the same constraints.
     """
 
     # Infer maximum occupied height from current environment
@@ -229,12 +251,25 @@ def shortest_path_base(
     y_min_floor, y_max_floor,
     timeout=1e-3
 ):
-    """
-    Computes a shortest path between two 2D targets projected onto a fixed
-    z-layer using A* search.
+    """A* shortest path within the single horizontal plane `z = z_search`.
 
-    This function serves as a lightweight base planner for fast horizontal
-    connectivity checks under static obstacle and wall constraints.
+    Used by `embedding.fallback.basic_embedding` to connect the two columns
+    of a CNOT at a given height.
+
+    Args:
+        target_1, target_2: `(x, y)` (a z component, if present, is replaced
+            by `z_search`).
+        occupied: set of blocked cells.
+        wall: set of `(x, y)` columns that may not be crossed (the columns of
+            the layer's input ports).
+        z_search: the plane to route in.
+        x_min_floor, x_max_floor, y_min_floor, y_max_floor: footprint limits
+            (inclusive); `target_2` is exempt.
+        timeout: wall-clock budget in seconds; also stops after 10000
+            expansions.
+
+    Returns:
+        The list of cells from `target_1` to `target_2` inclusive, or None.
     """
 
     # Project both targets onto the specified search layer

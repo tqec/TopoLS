@@ -62,16 +62,30 @@ def _hadamard_step(hadamard_edges, h_count, node_a, node_b):
 
 
 def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_place, node, coord, input_ports, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, hadamard_edges):
-    """Route every input port of a newly placed standard/S/T node (types
-    0, 1, 4, 5). `target_type` is the node's own type for a standard cube and
-    0 for S/T, which are always traced as Z-type. The first routed edge fixes
-    `ori[node]`; every later edge must agree with it (`color_switch` re-routes
-    a mismatch).
+    """Route a newly placed cube (type 0, 1, 4 or 5) to each of its input ports.
 
-    Returns `(path, occ_tmp, input)` for the last input port routed -- the S
-    branch uses them to place its measurement stub and the callers pass
-    `input` on to the intra-layer routing -- or None when any routing fails,
-    in which case next_state() abandons this placement.
+    Each input port is a node of the previous layer (or an idle chain end).
+    The wire is routed with A*, the colour arriving at `node` is traced along
+    it (through the whole idle chain when the port is an idle), the Hadamard
+    flip for that wire is applied, and `ORI_MAP` gives the orientation `node`
+    must have. The first wire fixes `ori[node]`; every later wire must lead
+    to the same orientation, otherwise `color_switch` re-routes it.
+
+    Args:
+        pos, occ, paths, ori, typ, track, idle_place: the working copies of
+            the state's dicts/sets, updated in place.
+        axis_offsets: `AXIS_OFFSETS`.
+        node, coord: the node being placed and its cell.
+        input_ports: its predecessors (`input_connect[node]`).
+        target_type: 0 or 1, the colour type used in the `ORI_MAP` lookup:
+            the node's own type for a Z/X spider, 0 for S and T.
+        z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor: limits.
+        hadamard_edges: `HTable`.
+
+    Returns:
+        `(path, occ_tmp, input)` for the last port routed (the S branch uses
+        them to place its measurement stub), or None if any wire cannot be
+        routed -- `next_state` then rejects the placement.
     """
 
     ori_flag = 0
@@ -164,14 +178,22 @@ def _route_input_ports(pos, occ, paths, axis_offsets, ori, typ, track, idle_plac
 
 
 # ---------------------------------------------------------------------------
-# Intra-layer routing helpers shared by next_state()'s node-type branches.
-# All four add the routed path's interior points to `occ` in place and return
-# the path, or None when routing fails (next_state() then abandons the
-# placement).
+# Intra-layer wires (edges between two nodes of the same layer, e.g. the two
+# halves of a CNOT). `next_state` routes them when the second endpoint is
+# placed. The four helpers below cover the combinations of "solid" endpoint
+# (a cube: type 0/1/4/5, with its own orientation) and "chain" endpoint (an
+# idle or Hadamard box whose colour is only known by tracing its chain back
+# to the real node it started from). Each routes with A*, traces the colour
+# from the side whose orientation is known, applies the Hadamard flip for the
+# wire between the two real nodes involved, and re-routes with `color_switch`
+# when the orientations disagree. All add the path's interior cells to `occ`
+# in place and return the path, or None when routing fails.
 
 def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ_input, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
-    """dst_typ in (0,1,4,5), src_node is itself a standard/S/T node with a
-    directly-known orientation (no idle/Hadamard chain to resolve)."""
+    """Wire between two cubes. The colour is traced from `src_node`
+    (`typ_input` = its colour type, 0 for S/T) and compared with the
+    orientation of `dst_node` (type `dst_typ`). `mask_node` is the idle whose
+    column A* may enter."""
 
     src = pos[src_node]
     dst = pos[dst_node]
@@ -208,8 +230,9 @@ def _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_nod
 
 
 def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
-    """dst_typ in (0,1,4,5), src_node is idle/Hadamard: its orientation must
-    be resolved by replaying the idle_h_track chain back to a real cube."""
+    """Wire from a chain end `src_node` (idle/box) to a cube `dst_node`.
+    The chain is traced from its origin through the new wire and the flip for
+    origin -> `dst_node` applied; the chain record is closed."""
 
     src = pos[src_node]
     dst = pos[dst_node]
@@ -258,8 +281,10 @@ def _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_n
 
 
 def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, target_type, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
-    """dst_typ in (2,3), src_node is a standard/S/T node: dst's chain is
-    resolved and compared against src's own (already-known) orientation."""
+    """Wire from a cube `src_node` to a chain end `dst_node` (idle/box).
+    The chain is traced from its origin, the flip for `src_node` -> origin
+    applied, and the result compared with `src_node`'s orientation
+    (`target_type` = its colour type); the chain record is closed."""
 
     src = pos[src_node]
     dst = pos[dst_node]
@@ -305,8 +330,9 @@ def _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_n
 
 
 def _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, z_floor, x_min_floor, x_max_floor, y_min_floor, y_max_floor, idle_place, mask_node, hadamard_edges):
-    """Both endpoints are idle/Hadamard: merge their two chains and check
-    the combined color/orientation against the source chain's origin."""
+    """Wire between two chain ends. The two chains and the new wire form one
+    pipe between their origins; it is traced from the destination's origin
+    and checked against the source's origin, then both records are closed."""
 
     src = pos[src_node]
     dst = pos[dst_node]
@@ -418,11 +444,23 @@ class EmbeddingState:
         hadamard_edges,
         order_idx=0
     ):
-        """
-        Initialize an embedding state.
+        """See the class docstring for the meaning of the geometric fields.
 
-        Parameters define the current embedded geometry, routing constraints,
-        auxiliary tracking structures, and the remaining embedding task.
+        Args:
+            embed_node_pos, embed_node_ori, embed_node_type: what is embedded.
+            embed_path: tuple of routed paths; occupied: frozenset of cells.
+            z_floor: z of this layer's floor (the previous ceiling).
+            x_min_floor, x_max_floor, y_min_floor, y_max_floor: footprint.
+            idle_h_track, idle_place, t_track: chain and T-exit records.
+            node_type, input_connect, inter_connect, output_connect: the
+                layer to embed (`layering.layer_info`).
+            order: the nodes of the layer in placement order.
+            z_length: height accumulated by earlier layers (for `vol`).
+            hadamard_edges: `HTable`.
+            order_idx: how many nodes of `order` are already placed.
+
+        `vol`, the bounding-box volume (`geometry.bounding_box`), is computed
+        here and is what the search minimises.
         """
 
         # --------------------------------------------------
@@ -530,18 +568,25 @@ class EmbeddingState:
         return self.order_idx >= len(self.order)
 
     def reward(self, verbose=False, layer=None, length=4):
-        """
-        Computes the terminal reward of an embedding state.
+        """Finish a complete layer and score it.
 
-        This function is only evaluated at terminal states. It finalizes the
-        embedding by routing all output connections to a ceiling layer and
-        resolving T-gate exits to the boundary.
+        Only defined on terminal states. Every node with a connection to the
+        next layer is lifted to the ceiling plane `z = max occupied z + 1`:
+        target cells are laid out with `auto_ports` (idles directly above
+        themselves where possible, the rest assigned greedily by distance),
+        each node is routed to its target and the colour it delivers there
+        is traced. Pending T exits are then routed to the boundary. Nothing
+        is committed to the state; `ports.ceiling` applies the result.
 
-        Returns
-        -------
-        tuple or None
-            (-volume, new_t_track, occ_t_track, ceiling_track) if successful;
-            otherwise None.
+        Args:
+            layer: unused (diagnostics).
+            length: qubits per row of the ceiling port grid.
+
+        Returns:
+            `(-vol, t_track, occupied, ceiling_track)` -- the reward is minus
+            the bounding-box volume; `ceiling_track[node] = {"path": ...,
+            "ori": ..., "type": ...}` describes each lifted end (idles have no
+            "ori") -- or None if some lift or T exit cannot be routed.
         """
 
         # Reward is only defined for terminal states
@@ -632,7 +677,7 @@ class EmbeddingState:
 
             ceiling_track[node] = {}
 
-            # Standard nodes (junctions, S/T variants)
+            # Cubes (Z/X spiders, S, T): the lifted end keeps a colouring
             if self.node_type[node] in (0, 1, 4, 5):
                 pos = self.embed_node_pos[node]
                 ori = self.embed_node_ori[node]
@@ -656,16 +701,6 @@ class EmbeddingState:
                     return None
 
                 path, target = result
-
-                # Extend path upward beyond the ceiling
-                extra_steps = 0
-                extended_path = list(path)
-                x, y, z = target
-                for dz in range(1, extra_steps + 1):
-                    extended_path.append((x, y, z + dz))
-                # Update target to the new endpoint
-                target = (x, y, z + extra_steps)
-                path = extended_path
 
                 # Trace final orientation on the ceiling
                 if self.node_type[node] in (4, 5):
@@ -691,7 +726,7 @@ class EmbeddingState:
                 for q in path[1:-1]:
                     occ_ceiling.add(q)
 
-            # Idling / H-gate nodes
+            # Chain ends (idles, Hadamard boxes): lifted without a colouring
             elif self.node_type[node] in (2, 3):
                 pos = self.embed_node_pos[node]
                 target = node_target_pairs[node]
@@ -706,15 +741,6 @@ class EmbeddingState:
                     return None
 
                 path, target = result
-
-                # Extend path upward
-                extra_steps = 0
-                extended_path = list(path)
-                x, y, z = target
-                for dz in range(1, extra_steps + 1):
-                    extended_path.append((x, y, z + dz))
-                target = (x, y, z + extra_steps)
-                path = extended_path
 
                 ceiling_track[node]["type"]=self.node_type[node]
                 ceiling_track[node]["path"]=tuple(path)
@@ -789,6 +815,7 @@ class EmbeddingState:
         cent = self.embed_node_pos[input_ports[0]]
 
         # --------------------------------------------------
+        # Idles (type 2) continue straight up in the cases below
         # Special handling for type-2 nodes (e.g., idling / T-related)
         # --------------------------------------------------
 
@@ -860,31 +887,30 @@ class EmbeddingState:
     # -----------------------------------------------------------------------
 
     def next_state(self, coord):
-        """
-        Applies a placement action to the current embedding state and constructs
-        the corresponding next state.
+        """Place the next node of `order` at `coord` and route all its wires.
 
-        This function attempts to place the next node (according to the embedding
-        order) at the given 3D coordinate, and deterministically routes all required
-        connections while enforcing:
-        - occupancy and floor constraints,
-        - orientation consistency,
-        - gate-specific routing rules,
-        - idle / Hadamard / T-gate bookkeeping,
-        - inter-node connectivity constraints.
+        Works on copies, so `self` is unchanged. The wires routed depend on the
+        node's type:
 
-        If any required routing or constraint check fails, the function returns None.
+        * Z/X spider (0/1): every input port (`_route_input_ports`, which also
+          fixes the node's orientation), then every intra-layer edge to an
+          already placed node.
+        * idle (2): one wire to its single input port; if the port is itself an
+          idle at the top of the embedding, the idle is merged into it
+          instead of occupying a new cell. The chain record (`idle_h_track`)
+          is started or extended; the column above the idle is reserved.
+        * Hadamard box (3): like an idle, but the chain record counts it.
+        * S (4): input ports, then a two-cell stub next to the node for the
+          Y-basis measurement.
+        * T (5): input ports; the node is registered in `t_track` for its
+          exit to the boundary (routed by `reward`).
 
-        Parameters
-        ----------
-        coord : tuple
-            The proposed (x, y, z) coordinate for the next node placement.
+        Args:
+            coord: `(x, y, z)` for the node.
 
-        Returns
-        -------
-        EmbeddingState or None
-            A new EmbeddingState if the placement and all routings succeed,
-            otherwise None.
+        Returns:
+            The new `EmbeddingState`, or None if `coord` is unusable or any
+            wire cannot be routed colour-consistently.
         """
 
         # --------------------------------------------------
@@ -925,7 +951,7 @@ class EmbeddingState:
         occ.add(coord)
 
         # ==================================================
-        # Case 1: Normal junction nodes (type 0->z, 1->x)
+        # Case 1: Z / X spiders (types 0, 1)
         # ==================================================
 
         if typ[node] in (0, 1):
@@ -936,7 +962,7 @@ class EmbeddingState:
                 return None
             _, _, input = result
 
-            # We second consider the inter connection with the embedded nodes
+            # Then every intra-layer edge whose other endpoint is already placed
             for a, b in self.inter_connect:
 
                 # Check whether the current newly embedded node participates
@@ -948,9 +974,7 @@ class EmbeddingState:
                     dst_node = b if a == node else a
                     dst_typ =typ[dst_node]
 
-                    # --------------------------------------------------
-                    # Case 1: destination is a z / x / S / T node
-                    # --------------------------------------------------
+                    # destination is a cube (Z / X / S / T)
                     if dst_typ in (0, 1, 4, 5):
 
                         path = _route_solid_src_to_solid_dst(pos, occ, axis_offsets, ori, src_node, dst_node, dst_typ, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
@@ -958,9 +982,7 @@ class EmbeddingState:
                             return None
                         paths.append(tuple(path))
 
-                    # --------------------------------------------------
-                    # Case 2: destination is an idle node or Hadamard gate
-                    # --------------------------------------------------
+                    # destination is a chain end (idle / Hadamard box)
                     if dst_typ in (2, 3):
 
                         path = _route_solid_src_to_chain_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, typ[src_node], self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
@@ -970,14 +992,14 @@ class EmbeddingState:
 
 
         # ==================================================
-        # Case 2: Idling nodes (type 2)
+        # Case 2: idles (type 2)
         # ==================================================
 
         elif typ[node] == 2:
 
             input = self.input_connect[node][0]
 
-            # Special case: collapsing consecutive idle nodes vertically
+            # Consecutive idles at the top of the embedding collapse into one cell
             if typ[input]==2 and pos[input][2]>=max(pt[2] for pt in set(occ) if pt != coord):
                 # Reuse the input idle position instead of placing a new one
                 pos[node] = pos[input]
@@ -1056,7 +1078,7 @@ class EmbeddingState:
                         dst_node = b if a == node else a
                         dst_typ =typ[dst_node]
 
-                        # Case 1: destination is a z / x / S / T node
+                        # destination is a cube (Z / X / S / T)
                         if dst_typ in (0, 1, 4, 5):
 
                             path = _route_chain_src_to_solid_dst(pos, occ, axis_offsets, ori, typ, track, src_node, dst_node, dst_typ, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
@@ -1064,7 +1086,7 @@ class EmbeddingState:
                                 return None
                             paths.append(tuple(path))
 
-                        # Idle ↔ Idle / Hadamard node
+                        # destination is a chain end (idle / Hadamard box)
                         if dst_typ in (2, 3):
 
                             path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
@@ -1073,7 +1095,7 @@ class EmbeddingState:
                             paths.append(tuple(path))
 
         # ==================================================
-        # Case 3: Hadamard nodes (type 3)
+        # Case 3: Hadamard boxes (type 3), kept as cubes only on output-port wires
         # ==================================================
 
         elif typ[node] == 3 :
@@ -1140,7 +1162,7 @@ class EmbeddingState:
                             return None
                         paths.append(tuple(path))
 
-                    # Hadamard → idle / Hadamard node
+                    # destination is a chain end (idle / Hadamard box)
                     if dst_typ in (2, 3):
 
                         path = _route_chain_src_to_chain_dst(pos, occ, ori, typ, track, src_node, dst_node, self.z_floor, self.x_min_floor, self.x_max_floor, self.y_min_floor, self.y_max_floor, idle_place, input, self.hadamard_edges)
@@ -1174,7 +1196,7 @@ class EmbeddingState:
                         paths.append(tuple(path))
 
         # ===========================================================================================
-        # Case 4: S nodes (type 4), we add a blue junction at node, measurement based implementation
+        # Case 4: S nodes (type 4): inputs, then the stub for the Y-basis measurement
         # ===========================================================================================
 
         elif typ[node] == 4:
@@ -1190,7 +1212,8 @@ class EmbeddingState:
             ori_vec = axis_map[ori[node]]
             last_vec = vector(path[1], path[0])
 
-            # Add Y based measurement
+            # Two-cell stub perpendicular to the incoming wire, on whichever
+            # side is free, for the Y-basis measurement that implements S.
             found_y = False
             for sign in [1, -1]:
                 offset_dir = sign * np.cross(ori_vec, last_vec)
@@ -1235,7 +1258,7 @@ class EmbeddingState:
                         paths.append(tuple(path))
 
         # ====================================================================
-        # Case 5: T nodes (type 5), we need to route out this to the boundary
+        # Case 5: T nodes (type 5): inputs, then register the exit to the boundary
         # ====================================================================
 
         elif typ[node] == 5:

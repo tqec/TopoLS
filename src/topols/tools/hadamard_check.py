@@ -53,6 +53,7 @@ def check(name, block_size_max=20, zx_opt=1, spread_num=0, initial_block=0,
 
 
 def main(argv=None):
+    """Command-line entry point; returns 0 on PASS, 1 on FAIL."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--file_name", "-f", required=True,
                         help="circuit name (benchmark/<name>.qasm, result/topols/<name>.pkl)")

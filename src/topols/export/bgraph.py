@@ -196,10 +196,8 @@ def extend_path_for_t(path, fixed_at_start, occupied, schedule_t):
         tail[1] - prev[1],
         tail[2] - prev[2],
     )
-    # print("extending direction:", direction)
 
     curr = tail
-    # print("starting extension from:", curr)
 
     # Try extending forward
     extended_forward = []   # store every forward step you took
@@ -333,7 +331,6 @@ def check_paths_endpoints(paths, pos_hist, type_hist, schedule_t=0):
                     new_paths.append(path)
                     continue
                 else:
-                    # print("extending path:", path)
                     extended, t_node = extend_path_for_t(
                     path,
                     fixed_at_start=True,
@@ -341,7 +338,6 @@ def check_paths_endpoints(paths, pos_hist, type_hist, schedule_t=0):
                     schedule_t=schedule_t
                     )
                     t_nodes.extend(t_node)
-                    # print("extended:", extended)
                     new_paths.append(extended)
                     for p in extended:
                         occupied.add(p)
@@ -351,7 +347,6 @@ def check_paths_endpoints(paths, pos_hist, type_hist, schedule_t=0):
                     new_paths.append(path)
                     continue
                 else:
-                    # print("extending path:", path)
                     extended, t_node = extend_path_for_t(
                     path,
                     fixed_at_start=False,
@@ -359,7 +354,6 @@ def check_paths_endpoints(paths, pos_hist, type_hist, schedule_t=0):
                     schedule_t=schedule_t
                     )
                     t_nodes.extend(t_node)
-                    # print("extended:", extended)
                     new_paths.append(extended)
                     for p in extended:
                         occupied.add(p)
@@ -514,7 +508,6 @@ def edge_process(edge_data, bgraph_metadata, pos_to_node, ori, type, t_nodes):
     edge_metadata = {}
 
     for i, key in enumerate(edge_data):
-        # print(f"______{i}______")
 
         if len(edge_data[key]) == 2:
             edge_metadata[key] = edge_data[key]

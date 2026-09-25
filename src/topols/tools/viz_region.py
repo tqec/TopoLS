@@ -20,6 +20,7 @@ from topols.export.visualize_interactive import visualize_interactive
 def crop(bgraph_metadata, edge_metadata, xmin, xmax, ymin, ymax, zmin, zmax):
     """Restrict a diagram to the cubes inside `[xmin, xmax] x [ymin, ymax] x [zmin, zmax]`."""
     def inside(p):
+        """True iff cell `p` lies in the box."""
         return xmin <= p[0] <= xmax and ymin <= p[1] <= ymax and zmin <= p[2] <= zmax
 
     nodes = {k: v for k, v in bgraph_metadata.items() if inside(v["position"])}
@@ -28,6 +29,7 @@ def crop(bgraph_metadata, edge_metadata, xmin, xmax, ymin, ymax, zmin, zmax):
 
 
 def main(argv=None):
+    """Command-line entry point."""
     inf = float("inf")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--file_name", "-f", required=True, help="compiled circuit name")

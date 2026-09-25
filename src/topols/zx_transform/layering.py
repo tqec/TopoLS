@@ -236,7 +236,6 @@ def idling_nodes_insertion_block(graph, layer_labels, block_range):
             start_layer, end_layer = layer_u, max_layer+1
 
             row_start = graph.row(start)
-            # row_end = graph.row(end)
             row_end = max_row
             num_idling = abs(end_layer - start_layer) - 1
 

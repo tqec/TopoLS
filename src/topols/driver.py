@@ -150,6 +150,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
     _h_dbg = os.environ.get("TOPOLS_H_DEBUG")
     _tail_dbg = os.environ.get("TOPOLS_TAIL_DEBUG")
     def _tail(msg):
+        """Append a line to $TOPOLS_TAIL_DEBUG (records which rung embedded each layer)."""
         if _tail_dbg:
             with open(_tail_dbg, "a") as _fh:
                 _fh.write(msg + "\n")
@@ -634,8 +635,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                     best_state = best_state_
 
                 if best_state is None:
-                    # print(f"Failed to find a valid embedding for layer {i} with ceiling, start gate by gate embedding.")
-                    # Now we are going to start from the begining of the block and use gate by gate embedding.
+                    # Restart the whole block with gate-by-gate embedding.
                     _tail(f"MAIN i={i} block={block}: ceiling-retry tier returned None too -> gate-by-gate FALLBACK")
                     backup_flag = 1
                     # Re-layer this block one row per layer. Layer 0 of the block-local
@@ -697,7 +697,7 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             io_info.update({k: v for k, v in io_info_.items() if k in best_state.embed_node_pos})
                             return best_state, pos_hist, ori_hist, path_hist, type_hist
 
-                    # Second recover the information at the begining of the block
+                    # Restore the state at the beginning of the block
                     input_port_loc = block_state.embed_node_pos
                     input_port_ori = block_state.embed_node_ori
                     input_port_type = block_state.embed_node_type
@@ -723,7 +723,6 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
 
                         if node_output_connect == {}:
                             _tail(f"RETURN j-loop seal block={block} j={j} brute_last={brute_last}")
-                            # print("No more output connection: return best state.")
                             if brute_last:
                                 best_state = seal_brute_frontier(pre_brute_state)
                             else:
@@ -740,7 +739,8 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                             return best_state, pos_hist, ori_hist, path_hist, type_hist
 
                         if j == 1:
-                            # For the first layer, we need to change the input connect
+                            # First block layer: its predecessors are the hand-off nodes of the
+                            # previous block (by qubit), not graph_'s own layer-0 vertices
                             node_input_connect_new = {}
                             input_values = list(node_input_connect.keys())
                             for key in input_values:
@@ -869,7 +869,6 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                         if best_state is None:
 
                             if ceiling_flag == 0:
-                                # print(f"Failed to find a valid embedding for layer {j} with gate by gate embedding, try ceiling.")
                                 best_state = ceiling(_fresh_copy_for_ceiling(pre_state), pre_ceiling_track, pre_node_type)
                                 ceiling_state = best_state
 
@@ -956,7 +955,6 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                                                 best_state = best_state_
 
                             if best_state is None:
-                                # print("Fail with ceiling in gate by gate embedding, trigger brute force embedding.")
                                 if j == 1:
                                     best_state = block_state
                                     input_port_loc = block_state.embed_node_pos

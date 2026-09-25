@@ -82,13 +82,21 @@ uv run 2tqec.py -f ghz_16 -i True      # result/visualization/ghz_16_interactive
 # 3. check that every Hadamard of the circuit appears exactly once in the diagram
 uv run python -m topols.tools.hadamard_check -f ghz_16 -b 20
 
-# 4. simulate the exported block graph with TQEC (small circuits only)
-uv run python -m topols.tools.pipe_sim -f CNOT
+# 4. simulate a block graph with TQEC (small circuits only): compile and export a CNOT, then simulate
+uv run prog.py -f CNOT -b 20 -zx 1 -dir 1 -l 4 -r 0 -s 2 -t 2 -i 1000 -csv result -sp 0 -b0 0
+uv run 2tqec.py -f CNOT
+uv run python -m topols.tools.pipe_sim -f CNOT   # result/simulation/CNOT_*.html, CNOT_lep_*.png
 ```
 
 With pip, replace `uv run` by `python3` (and `uv run python` by `python3`).
-A step-by-step version of the same workflow is in
-[`docs/tutorial.ipynb`](docs/tutorial.ipynb). The scripts in `docs/` are
+The same workflow, step by step, is in
+[`docs/tutorial.ipynb`](docs/tutorial.ipynb); open it with
+
+```bash
+uv run --with jupyterlab jupyter lab docs/tutorial.ipynb    # or: pip install jupyterlab
+```
+
+The scripts in `docs/` are
 thin command-line front ends; everything they do is available as functions
 in the `topols` package (`topols.pipeline.prepare_graph`,
 `topols.driver.operation`, `topols.export.bgraph.build_pipe_diagram`, …).
