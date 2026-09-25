@@ -14,7 +14,7 @@ dependencies = [
     "pandas>=2.3,<3.0",
     "plotly>=7.1.0",
     "pyvista==0.48.1",
-    "pyzx==0.10.3",
+    "pyzx==0.10.6",
     "sinter==1.15.0",
     "tqdm>=4.68.2,<4.69",
     "tqec>=0.1.0",
