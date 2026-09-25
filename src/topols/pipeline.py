@@ -17,7 +17,9 @@ from topols.zx_transform.layering import (
     align_output_ports,
     extract_io_nodes,
     idling_nodes_insertion,
+    idling_nodes_insertion_block_vanilla,
     layer_labeling,
+    layer_labeling_block_vanilla,
     layer_to_block_map,
     rematerialize_stranded_hadamards,
 )
@@ -133,3 +135,34 @@ def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1, spread_num=
         h_table=h_table, io_info=extract_io_nodes(graph),
     )
 
+
+
+def fallback_block(circuit, block, block_info, idx_to_row, spread_num=0):
+    """The gate-by-gate fallback's view of one block: the circuit re-parsed and
+    re-layered one row per layer.
+
+    Layer 0 of the block-local layering plays the role of the already
+    embedded frontier, so the range starts one row early. The graph gets the
+    same Hadamard dissolution, idle insertion, box restoration and port
+    alignment as the main pipeline.
+
+    Returns:
+        `(graph, layer_labels, io_info)` of the block's graph; the caller
+        registers the labelled vertices in the `HTable` under the block
+        suffix (`HTable.register_graph_labelled`).
+    """
+    block_row_start = block_info[block][0]
+    if block_row_start > 0:
+        block_row_start -= 1
+    block_range = [idx_to_row[block_row_start], idx_to_row[block_info[block][1]]]
+    graph_ = circuit.to_graph()
+    hadamard_box(graph_)
+    delete_singular_nodes(graph_)
+    if spread_num > 0:
+        spread_rows(graph_, spread_num)
+    hadamard_edges_ = dissolve_hadamard_boxes(graph_)
+    layer_labels_ = layer_labeling_block_vanilla(graph_, block_range)
+    layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range, hadamard_edges_)
+    rematerialize_stranded_hadamards(graph_, layer_labels_, hadamard_edges_)
+    align_output_ports(graph_, layer_labels_)
+    return graph_, layer_labels_, extract_io_nodes(graph_)

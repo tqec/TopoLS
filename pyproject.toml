@@ -23,6 +23,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=7.3.0",
+    "maturin>=1.15.0",
     "nbconvert>=7.17.1",
 ]
 

@@ -16,6 +16,7 @@ import pandas as pd
 
 from topols.driver import operation
 from topols.embedding.ports import calculate_space_time
+from topols.engine import run_rust
 from topols.pipeline import prepare_graph
 
 parser = argparse.ArgumentParser(description="Compile a quantum circuit with TopoLS")
@@ -44,6 +45,9 @@ parser.add_argument('--backtrack', type=int, default=0,
                          'up to K of the other seeds\' previous-layer states before falling back (0 = off)')
 parser.add_argument('--spread_num', '-sp', type=int, default=0,
                     help='dense circuits: spread gates so that no row holds more than N (0 = off)')
+parser.add_argument('--engine', choices=['auto', 'rust', 'python'], default='auto',
+                    help='search implementation: the compiled Rust core when available (auto), or force one; '
+                         'both give identical results')
 args = parser.parse_args()
 
 file_name = args.file_name
@@ -54,21 +58,38 @@ prep = prepare_graph(f"benchmark/{file_name}.qasm", block_size_max=args.block_si
                      zx_opt=args.zx_opt, dir_opt=args.dir_opt, spread_num=args.spread_num)
 print(prep.h_table.stats())
 
-# 2. Layer-by-layer 3D embedding.
+# 2. Layer-by-layer 3D embedding (Rust core or the Python reference; same result).
+engine = args.engine
+if engine == 'auto':
+    try:
+        import topols_core  # noqa: F401
+        engine = 'rust'
+    except ImportError:
+        engine = 'python'
 time0 = time.time()
-best_state, pos_hist, ori_hist, path_hist, type_hist = operation(
-    prep.circuit, prep.graph, prep.layer_labels, prep.layer_to_block, prep.block_info,
-    prep.idx_to_row, prep.rows, prep.q_num, z_floor=1,
-    seed_init_tuple=(args.random_seed, args.seed_step), time_bound=args.time_bound,
-    iter_num=args.iter_num, move_num=6, length=args.len, dir_opt=args.dir_opt,
-    spread_num=args.spread_num, hadamard_edges=prep.h_table, io_info=prep.io_info,
-    backtrack=args.backtrack)
+if engine == 'rust':
+    pos_hist, ori_hist, type_hist, path_hist, io_info, floors, volume = run_rust(prep, {
+        "seed_init": args.random_seed, "seed_step": args.seed_step, "time_bound": args.time_bound,
+        "iter_num": args.iter_num, "move_num": 6, "length": args.len, "dir_opt": bool(args.dir_opt),
+        "backtrack": args.backtrack, "z_floor": 1}, spread_num=args.spread_num)
+    x_min_floor, x_max_floor, y_min_floor, y_max_floor = floors
+else:
+    best_state, pos_hist, ori_hist, path_hist, type_hist = operation(
+        prep.circuit, prep.graph, prep.layer_labels, prep.layer_to_block, prep.block_info,
+        prep.idx_to_row, prep.rows, prep.q_num, z_floor=1,
+        seed_init_tuple=(args.random_seed, args.seed_step), time_bound=args.time_bound,
+        iter_num=args.iter_num, move_num=6, length=args.len, dir_opt=args.dir_opt,
+        spread_num=args.spread_num, hadamard_edges=prep.h_table, io_info=prep.io_info,
+        backtrack=args.backtrack)
+    io_info = prep.io_info
+    x_min_floor, x_max_floor = best_state.x_min_floor, best_state.x_max_floor
+    y_min_floor, y_max_floor = best_state.y_min_floor, best_state.y_max_floor
 time1 = time.time()
+print(f"Engine: {engine}")
 
 # 3. Metrics and outputs.
 x_length, y_length, z_length, volume = calculate_space_time(
-    pos_hist, path_hist, best_state.x_min_floor, best_state.x_max_floor,
-    best_state.y_min_floor, best_state.y_max_floor)
+    pos_hist, path_hist, x_min_floor, x_max_floor, y_min_floor, y_max_floor)
 space = x_length * y_length
 time_step = z_length
 print("x_length:", x_length, "y_length:", y_length, "z_length:", z_length)
@@ -81,7 +102,7 @@ os.makedirs(os.path.join("result", "topols"), exist_ok=True)
 with open(f'result/topols/{file_name}.pkl', 'wb') as f:
     pickle.dump({
         'pos_hist': pos_hist, 'ori_hist': ori_hist, 'path_hist': path_hist,
-        'type_hist': type_hist, 'io_info': prep.io_info,
+        'type_hist': type_hist, 'io_info': io_info,
         'x_length': x_length, 'y_length': y_length, 'z_length': z_length,
         'volume': volume, 'space': space, 'time': time_step,
         'compilation_time': time1 - time0,

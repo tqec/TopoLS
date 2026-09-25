@@ -7,13 +7,18 @@ description = "TopoLS embedding core: MCTS placement and A* routing of ZX layers
 [lib]
 name = "topols_core"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rustc-hash = "2"
 indexmap = "2"
-
-[dev-dependencies]
 serde_json = "1"
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"], optional = true }
+
+[features]
+default = []
+python = ["pyo3"]
+
 
 [profile.release]
 opt-level = 3

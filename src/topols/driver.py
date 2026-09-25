@@ -15,17 +15,9 @@ from topols.embedding.state import EmbeddingState
 from topols.embedding.mcts import mcts
 from topols.embedding.fallback import basic_embedding
 from topols.embedding.ports import auto_ports, ceiling, seal_brute_frontier
-from topols.zx_transform.simplify import hadamard_box, delete_singular_nodes, spread_rows, dissolve_hadamard_boxes
+from topols.pipeline import fallback_block
 from topols.embedding.hadamard import HTable
-from topols.zx_transform.layering import (
-    ordered_edges,
-    layer_labeling_block_vanilla,
-    idling_nodes_insertion_block_vanilla,
-    layer_info,
-    extract_io_nodes,
-    rematerialize_stranded_hadamards,
-    align_output_ports,
-)
+from topols.zx_transform.layering import layer_info, ordered_edges
 
 
 # ---------------------------------------------------------------------------
@@ -572,33 +564,17 @@ def operation(circuit, graph, layer_labels, layer_to_block, block_info, idx_to_r
                 _tail(f"MAIN i={i} block={block}: ceiling-retry tier returned None too -> gate-by-gate FALLBACK")
                 backup_flag = 1
 
-                # Re-layer the block on a fresh parse of the circuit. Layer 0 of
-                # the block-local layering plays the role of the already-embedded
-                # frontier, so the range starts one row early.
-                block_row_start = block_info[block][0]
-                if block_row_start > 0:
-                    block_row_start -= 1
-                block_range = [idx_to_row[block_row_start], idx_to_row[block_info[block][1]]]
-                graph_ = circuit.to_graph()
-                hadamard_box(graph_)
-                delete_singular_nodes(graph_)
-                if spread_num > 0:
-                    spread_rows(graph_, spread_num)
-                hadamard_edges_ = dissolve_hadamard_boxes(graph_)
-                layer_labels_ = layer_labeling_block_vanilla(graph_, block_range)
-                layer_labels_ = idling_nodes_insertion_block_vanilla(graph_, layer_labels_, block_range, hadamard_edges_)
-                # Same output-port handling as the main pipeline, then register
-                # the block's vertices (renamed f"{v}_{block}" below) so routing
-                # can place them by (qubit, row).
-                rematerialize_stranded_hadamards(graph_, layer_labels_, hadamard_edges_)
-                align_output_ports(graph_, layer_labels_)
+                # Re-layer the block one row per layer (see pipeline.fallback_block)
+                # and register its vertices (renamed f"{v}_{block}" below) so
+                # routing can place them by (qubit, row).
+                graph_, layer_labels_, io_raw = fallback_block(circuit, block, block_info, idx_to_row, spread_num)
                 hadamard_edges.register_graph_labelled(graph_, layer_labels_, f"_{block}")
                 if _h_dbg:
                     with open(_h_dbg, "a") as fh:
                         fh.write(f"declared_block{block}\t{hadamard_edges.stats()}\n")
-                io_info_ = {f"{k}_{block}": v for k, v in extract_io_nodes(graph_).items()}
+                io_info_ = {f"{k}_{block}": v for k, v in io_raw.items()}
                 rows_ = set(layer_labels_.values())
-                _tail(f"FALLBACK block={block} at outer i={i}: block_range={block_range} rows_={sorted(rows_)}")
+                _tail(f"FALLBACK block={block} at outer i={i}: rows_={sorted(rows_)}")
 
                 if len(rows_) <= 1:
                     # A block holding a single layer (only the output-boundary

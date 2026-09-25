@@ -7,7 +7,7 @@
 //! `ordered_edges` order, and every routing decision is made in the same
 //! order with the same tie-breaks.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
@@ -80,12 +80,12 @@ pub struct EmbeddingState {
     pub idle_h_track: NodeMap<Track>,
     pub idle_place: NodeMap<Cell>,
     pub t_track: NodeMap<TTrack>,
-    pub layer: Rc<Layer>,
+    pub layer: Arc<Layer>,
     /// Per-seed shuffled input ports (`input_connect`).
-    pub input_connect: Rc<NodeMap<Vec<NodeId>>>,
-    pub order: Rc<Vec<NodeId>>,
+    pub input_connect: Arc<NodeMap<Vec<NodeId>>>,
+    pub order: Arc<Vec<NodeId>>,
     pub z_length: f64,
-    pub htable: Rc<HTable>,
+    pub htable: Arc<HTable>,
     pub order_idx: usize,
     pub vol: f64,
 }
@@ -146,11 +146,11 @@ impl EmbeddingState {
         idle_h_track: NodeMap<Track>,
         idle_place: NodeMap<Cell>,
         t_track: NodeMap<TTrack>,
-        layer: Rc<Layer>,
-        input_connect: Rc<NodeMap<Vec<NodeId>>>,
-        order: Rc<Vec<NodeId>>,
+        layer: Arc<Layer>,
+        input_connect: Arc<NodeMap<Vec<NodeId>>>,
+        order: Arc<Vec<NodeId>>,
         z_length: f64,
-        htable: Rc<HTable>,
+        htable: Arc<HTable>,
         order_idx: usize,
     ) -> EmbeddingState {
         let vol = if pos.len() < 2 { 0.0 } else { bounding_box(&pos, &paths, &floors, z_floor, z_length) };
