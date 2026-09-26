@@ -7,9 +7,9 @@ fallback, the Hadamard table and the port information. `run_rust` calls the
 extension and returns the same tuple as `topols.driver.operation`.
 """
 
-import copy
 import json
 
+from topols.embedding.hadamard import HTable
 from topols.pipeline import fallback_block
 from topols.zx_transform.layering import layer_info
 
@@ -24,8 +24,27 @@ def _layer(graph, layer_labels, k):
     }
 
 
-def compile_payload(prep, params, spread_num=0):
-    """Plain-data input of the Rust core for a prepared circuit.
+def block_payload(prep, block, spread_num=0):
+    """Plain-data description of one block's gate-by-gate fallback graph
+    (`pipeline.fallback_block`), computed only when the Rust core asks for it:
+    its layers, the qubit of every vertex, its port vertices and the
+    `(qubit, row)` of every labelled vertex for the Hadamard table."""
+    graph_, labels_, io_ = fallback_block(prep.circuit, block, prep.block_info, prep.idx_to_row, spread_num)
+    ht = HTable()
+    ht.rows_by_qubit = prep.h_table.rows_by_qubit
+    ht.register_graph_labelled(graph_, labels_, f"_{block}")
+    rows_ = sorted(set(labels_.values()))
+    return {
+        "layers": [_layer(graph_, labels_, j) for j in range(len(rows_))],
+        "qubit_of": [[v, graph_.qubit(v)] for v in graph_.vertices()],
+        "io_info": [[v, e] for v, e in io_.items()],
+        "qrow": [[k, q, r] for k, (q, r) in ht.qrow.items()],
+    }
+
+
+def compile_payload(prep, params):
+    """Plain-data input of the Rust core for a prepared circuit (without the
+    fallback blocks, which `block_payload` supplies on demand).
 
     Args:
         prep: `PreparedGraph`.
@@ -37,27 +56,12 @@ def compile_payload(prep, params, spread_num=0):
     layers = [{"input_connect": [], "inter_connect": [], "output_connect": [], "node_type": []}]
     layers += [_layer(graph, labels, i) for i in range(1, n_layers)]
     layer_to_block = [prep.layer_to_block.get(i, 0) for i in range(n_layers)]
-
-    ht = copy.deepcopy(prep.h_table)
-    blocks = []
-    for block in sorted(prep.block_info):
-        graph_, labels_, io_ = fallback_block(prep.circuit, block, prep.block_info, prep.idx_to_row, spread_num)
-        ht.register_graph_labelled(graph_, labels_, f"_{block}")
-        rows_ = sorted(set(labels_.values()))
-        blocks.append({
-            "layers": [_layer(graph_, labels_, j) for j in range(len(rows_))],
-            "qubit_of": [[v, graph_.qubit(v)] for v in graph_.vertices()],
-            "io_info": [[v, e] for v, e in io_.items()],
-        })
-    while len(blocks) <= max(layer_to_block):
-        blocks.append({"layers": [], "qubit_of": [], "io_info": []})
-
+    ht = prep.h_table
     return {
         "layers": layers,
         "layer_to_block": layer_to_block,
         "q_num": prep.q_num,
         "qubit_of": [[v, graph.qubit(v)] for v in graph.vertices()],
-        "blocks": blocks,
         "htable": {
             "rows_by_qubit": {str(q): list(r) for q, r in ht.rows_by_qubit.items()},
             "cross": [sorted([list(a), list(b)]) for a, b in (tuple(fs) for fs in ht.cross)],
@@ -78,7 +82,8 @@ def run_rust(prep, params, spread_num=0):
     path_hist, io_info, floors, volume)` -- what `prog.py` needs to write its
     result -- or raises ImportError if `topols_core` is not installed."""
     import topols_core  # noqa: F401  (the compiled extension)
-    out = json.loads(topols_core.compile(json.dumps(compile_payload(prep, params, spread_num))))
+    provider = lambda block: json.dumps(block_payload(prep, block, spread_num))  # noqa: E731
+    out = json.loads(topols_core.compile(json.dumps(compile_payload(prep, params)), provider))
     pos = {_node_key(k): tuple(v) for k, v in out["pos"]}
     ori = {_node_key(k): v for k, v in out["ori"]}
     typ = {_node_key(k): v for k, v in out["typ"]}

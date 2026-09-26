@@ -55,6 +55,24 @@ pub struct FallbackBlock {
     pub layers: Vec<LayerData>,
     pub qubit_of: FxHashMap<u32, i64>,
     pub io_info: Vec<(u32, IoEntry)>,
+    /// `(qubit, row)` of the block's labelled vertices, keyed `<v>_<block>`
+    /// (`HTable.register_graph_labelled`)
+    pub qrow: Vec<(NodeId, (i64, f64))>,
+}
+
+/// Where the fallback graphs come from. Building one means re-parsing and
+/// re-layering the circuit, so they are produced only for blocks whose
+/// layers could not be embedded by search.
+pub trait FallbackSource {
+    fn block(&self, block: u16) -> FallbackBlock;
+}
+
+/// All blocks known up front (tests, recorded payloads).
+pub struct PreloadedBlocks(pub Vec<FallbackBlock>);
+impl FallbackSource for PreloadedBlocks {
+    fn block(&self, block: u16) -> FallbackBlock {
+        self.0[block as usize].clone()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -76,8 +94,7 @@ pub struct CompileInput {
     pub layer_to_block: Vec<u16>,
     pub q_num: usize,
     pub qubit_of: FxHashMap<u32, i64>,
-    /// index = block
-    pub blocks: Vec<FallbackBlock>,
+    pub fallback: Box<dyn FallbackSource>,
     pub htable: HTable,
     pub io_info: Vec<(NodeId, IoEntry)>,
     pub params: Params,
@@ -180,7 +197,7 @@ struct Cfg {
     move_nums: Vec<usize>,
     length: usize,
     floors: Floors,
-    ht: Arc<HTable>,
+    ht: std::cell::RefCell<Arc<HTable>>,
 }
 
 /// `_search_layer`: one search rung. `input_connect` is the layer's shared
@@ -236,7 +253,7 @@ fn search_layer(
             let mut root = Some(EmbeddingState::new(
                 front.pos.clone(), front.ori.clone(), front.typ.clone(), front.paths.clone(), front.paths_max_z, front.occupied.clone(), front.z_floor, cfg.floors,
                 front.idle_h_track.clone(), front.idle_place.clone(), front.t_track.clone(), layer.clone(), input_connect_seed, Arc::new(order),
-                z_length, cfg.ht.clone(), 0,
+                z_length, cfg.ht.borrow().clone(), 0,
             ));
             for _ in 0..priority.len() {
                 let r = root.take().unwrap();
@@ -370,7 +387,7 @@ fn zmax_cells(occ: &Occ) -> (i32, Occ) {
 /// `operation()`
 pub fn operation(input: &CompileInput) -> CompileOutput {
     let p = &input.params;
-    let ht = Arc::new(input.htable.clone());
+    let mut ht = Arc::new(input.htable.clone());
     let mut io_info = input.io_info.clone();
 
     let edge_dist = 2;
@@ -386,7 +403,7 @@ pub fn operation(input: &CompileInput) -> CompileOutput {
         seeds: (p.seed_init..p.seed_init + p.seed_step as u64).collect(),
         iter_num: p.iter_num, time_bound: p.time_bound,
         move_nums: if p.dir_opt { vec![1, p.move_num] } else { vec![1] },
-        length: p.length, floors, ht: ht.clone(),
+        length: p.length, floors, ht: std::cell::RefCell::new(ht.clone()),
     };
 
     let mut front = Frontier {
@@ -544,7 +561,17 @@ pub fn operation(input: &CompileInput) -> CompileOutput {
             // Rung 3: gate-by-gate
             if best_state.is_none() {
                 backup_flag = true;
-                let fb = &input.blocks[block as usize];
+                let fb = input.fallback.block(block);
+                let fb = &fb;
+                // register the block's vertices in the Hadamard table (new ids only)
+                if !fb.qrow.is_empty() {
+                    let mut table = (**cfg.ht.borrow()).clone();
+                    for (k, v) in &fb.qrow {
+                        table.qrow.insert(*k, *v);
+                    }
+                    ht = Arc::new(table);
+                    *cfg.ht.borrow_mut() = ht.clone();
+                }
                 let io_info_: Vec<(NodeId, IoEntry)> = fb.io_info.iter().map(|(v, e)| (NodeId::in_block(*v, block), e.clone())).collect();
                 let n_rows = fb.layers.len();
 

@@ -4,7 +4,7 @@
 use rustc_hash::FxHashMap;
 use serde_json::{json, Value};
 
-use crate::driver::{CompileInput, CompileOutput, FallbackBlock, IoEntry, LayerData, Params};
+use crate::driver::{CompileInput, CompileOutput, FallbackBlock, FallbackSource, IoEntry, LayerData, Params, PreloadedBlocks};
 use crate::embedding::hadamard::HTable;
 use crate::embedding::node::NodeId;
 use crate::embedding::state::NodeMap;
@@ -41,21 +41,29 @@ fn io_entry(v: &Value) -> IoEntry {
     IoEntry { kind: v["type"].as_str().unwrap().to_string(), qubit: v["qubit"].as_i64().unwrap() }
 }
 
+/// One fallback block (`topols.engine.block_payload`).
+pub fn parse_block(b: &Value) -> FallbackBlock {
+    FallbackBlock {
+        layers: b["layers"].as_array().unwrap().iter().map(layer).collect(),
+        qubit_of: b["qubit_of"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as u32, e[1].as_i64().unwrap())).collect(),
+        io_info: b["io_info"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as u32, io_entry(&e[1]))).collect(),
+        qrow: b["qrow"].as_array().map(|arr| arr.iter().map(|e| (parse_node(&e[0]), (e[1].as_i64().unwrap(), e[2].as_f64().unwrap()))).collect()).unwrap_or_default(),
+    }
+}
+
+/// Parse a payload whose fallback blocks are all included (`"blocks"`).
 pub fn parse_input(text: &str) -> CompileInput {
+    parse_input_with(text, None)
+}
+
+/// Parse a payload; fallback blocks come from `source` when given, else
+/// from the payload's `"blocks"`.
+pub fn parse_input_with(text: &str, source: Option<Box<dyn FallbackSource>>) -> CompileInput {
     let v: Value = serde_json::from_str(text).expect("payload is not JSON");
     let layers: Vec<LayerData> = v["layers"].as_array().unwrap().iter().map(layer).collect();
     let layer_to_block: Vec<u16> = v["layer_to_block"].as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u16).collect();
     let qubit_of: FxHashMap<u32, i64> = v["qubit_of"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as u32, e[1].as_i64().unwrap())).collect();
-    let blocks: Vec<FallbackBlock> = v["blocks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|b| FallbackBlock {
-            layers: b["layers"].as_array().unwrap().iter().map(layer).collect(),
-            qubit_of: b["qubit_of"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as u32, e[1].as_i64().unwrap())).collect(),
-            io_info: b["io_info"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as u32, io_entry(&e[1]))).collect(),
-        })
-        .collect();
+    let blocks: Vec<FallbackBlock> = v["blocks"].as_array().map(|arr| arr.iter().map(parse_block).collect()).unwrap_or_default();
     let mut htable = HTable::default();
     let h = &v["htable"];
     for (q, rows) in h["rows_by_qubit"].as_object().unwrap() {
@@ -81,7 +89,8 @@ pub fn parse_input(text: &str) -> CompileInput {
         backtrack: p["backtrack"].as_u64().unwrap() as usize,
         z_floor: p["z_floor"].as_f64().unwrap(),
     };
-    CompileInput { layers, layer_to_block, q_num: v["q_num"].as_u64().unwrap() as usize, qubit_of, blocks, htable, io_info, params }
+    let fallback: Box<dyn FallbackSource> = source.unwrap_or_else(|| Box::new(PreloadedBlocks(blocks)));
+    CompileInput { layers, layer_to_block, q_num: v["q_num"].as_u64().unwrap() as usize, qubit_of, fallback, htable, io_info, params }
 }
 
 fn cell_json(c: &Cell) -> Value {

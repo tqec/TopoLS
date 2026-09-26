@@ -28,3 +28,4 @@ slurm/
 docs/tutorial_executed.ipynb
 tests/
 rust/topols_core/target/
+docs/tutorial_rust_executed.ipynb

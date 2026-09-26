@@ -22,8 +22,8 @@ def _move_hadamard_flag(hadamard_edges, old_edge, new_edge):
     of the new edges (the first one; a single flip anywhere on the chain has
     the same effect).
     """
-    if hadamard_edges is None:
-        return
+    if hadamard_edges is None or new_edge is None:
+        return  # no idle was inserted: the edge was re-added as it was
     old_key = frozenset(old_edge)
     if old_key in hadamard_edges:
         hadamard_edges.discard(old_key)

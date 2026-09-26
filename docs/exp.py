@@ -2,6 +2,7 @@
 
     python3 exp.py                 # all three configurations
     python3 exp.py full part place # any subset, in this order
+    python3 exp.py --engine rust   # same runs through the Rust core (see exp_rust.py)
 
 Runs `prog.py` on the nine benchmarks in three configurations. Results are
 appended by `prog.py` to `result/topols/result_<config>.csv`; a summary
@@ -54,10 +55,11 @@ CONFIGS = {
 }
 
 
-def compile_command(config, benchmark):
+def compile_command(config, benchmark, engine=None, csv_suffix=""):
     block, dir_opt, csv_name = CONFIGS[config]
-    return (f"python3 prog.py -f {benchmark} -b {block} -zx 1 -dir {dir_opt} -l {qubits_per_row(benchmark)} "
-            f"{BUDGET[benchmark]} -csv {csv_name} -sp 0")
+    cmd = (f"python3 prog.py -f {benchmark} -b {block} -zx 1 -dir {dir_opt} -l {qubits_per_row(benchmark)} "
+           f"{BUDGET[benchmark]} -csv {csv_name}{csv_suffix} -sp 0")
+    return cmd + (f" --engine {engine}" if engine else "")
 
 
 def run(cmd):
@@ -68,11 +70,12 @@ def run(cmd):
     return proc.stdout
 
 
-def main(configs):
+def main(configs, engine=None, csv_suffix=""):
+    """Run `configs` (names from CONFIGS) with the given prog.py engine."""
     rows = []
     for config in configs:
         for benchmark in BENCHMARKS:
-            out = run(compile_command(config, benchmark))
+            out = run(compile_command(config, benchmark, engine, csv_suffix))
             volume = re.search(r"Space-time volume: ([\d.]+)", out).group(1)
             seconds = re.search(r"Compilation time: ([\d.]+)", out).group(1)
             rows.append((config, benchmark, int(float(volume)), round(float(seconds), 1)))
@@ -80,9 +83,12 @@ def main(configs):
     print(f"\n{'config':6s} {'benchmark':10s} {'volume':>8s} {'time(s)':>8s}")
     for config, benchmark, volume, seconds in rows:
         print(f"{config:6s} {benchmark:10s} {volume:8d} {seconds:8.1f}")
-    with open("result/topols/summary.csv", "a", newline="") as f:
+    with open(f"result/topols/summary{csv_suffix}.csv", "a", newline="") as f:
         csv.writer(f).writerows(rows)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or list(CONFIGS))
+    args = sys.argv[1:]
+    engine = args[args.index("--engine") + 1] if "--engine" in args else None
+    configs = [a for a in args if a in CONFIGS]
+    main(configs or list(CONFIGS), engine=engine, csv_suffix=f"_{engine}" if engine else "")

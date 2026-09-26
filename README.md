@@ -121,6 +121,13 @@ uv run prog.py -f ghz_16 ...                   # auto: Rust when importable, els
 `prog.py` prints `Engine: rust` or `Engine: python`. Without the extension
 everything works unchanged in pure Python.
 
+To reproduce the benchmarks with the Rust core run `uv run exp_rust.py` in
+`docs/` (same benchmarks and settings as `exp.py`, results in
+`result/topols/result_<config>_rust.csv` and `summary_rust.csv`); the header
+of `exp_rust.py` lists the reference volumes and times of both engines.
+[`docs/tutorial_rust.ipynb`](docs/tutorial_rust.ipynb) is the tutorial run
+through the Rust core, including the build step.
+
 ## 🎛 `prog.py` options
 
 | option | meaning |
