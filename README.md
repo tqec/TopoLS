@@ -98,6 +98,29 @@ thin command-line front ends; everything they do is available as functions
 in the `topols` package (`topols.pipeline.prepare_graph`,
 `topols.driver.operation`, `topols.export.bgraph.build_pipe_diagram`, …).
 
+## ⚙️ Rust core (optional, same results, much faster)
+
+The search (`topols.driver.operation` and everything below it) also exists
+as a Rust crate, `rust/topols_core`, exposed to Python as the extension
+module `topols_core`. It is a line-by-line port validated against the
+Python implementation: for the same circuit and options both engines
+produce the **same embedding, bit for bit** (positions, orientations,
+paths, volume). The Python implementation stays the reference; the Rust
+core is 10-45x faster depending on the circuit.
+
+```bash
+# build the extension into the current environment (needs a Rust toolchain: https://rustup.rs)
+uv run maturin develop --release -m rust/topols_core/Cargo.toml     # or: pip install maturin && maturin develop --release -m rust/topols_core/Cargo.toml
+
+cd docs
+uv run prog.py -f ghz_16 ... --engine rust     # force the Rust core
+uv run prog.py -f ghz_16 ... --engine python   # force the Python reference
+uv run prog.py -f ghz_16 ...                   # auto: Rust when importable, else Python
+```
+
+`prog.py` prints `Engine: rust` or `Engine: python`. Without the extension
+everything works unchanged in pure Python.
+
 ## 🎛 `prog.py` options
 
 | option | meaning |
@@ -113,6 +136,7 @@ in the `topols` package (`topols.pipeline.prepare_graph`,
 | `--backtrack K` | when a layer cannot be embedded from the best previous-layer state, retry it from up to K of the other seeds' previous-layer states before falling back to coarser strategies (0 = off) |
 | `-sp N` | for dense circuits: spread gates over rows so that no row holds more than N gates (0 = off) |
 | `-csv NAME` | append the metrics row to `result/topols/NAME.csv` |
+| `--engine auto/rust/python` | search implementation (see *Rust core*); `auto` picks the Rust core when installed |
 
 The search is *anytime* and deterministic: for a fixed seed and starting
 state the sequence of MCTS iterations is fixed and the budget is counted

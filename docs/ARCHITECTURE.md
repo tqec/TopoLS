@@ -57,6 +57,7 @@ ZX diagram ──► zx_transform ──► layered ZX diagram ──► embeddi
 | `routing/color_algebra.py` | how a cube's colour orientation evolves along a routed path (`edge_tracer`, `ORI_MAP`) and how to fix a mismatch (`color_switch`) |
 | `routing/boundary.py` | routing to the ceiling and to the boundary (T-gate exits) |
 | `export/bgraph.py` | pipe diagram → TQEC `BlockGraph` (`build_pipe_diagram`, `save_bigraph`) |
+| `engine.py` | bridge to the Rust core: `compile_payload` (a `PreparedGraph` and the per-block fallback graphs as plain data) and `run_rust` |
 | `tools/viz_region.py`, `tools/pipe_sim.py` | command-line tools on a compiled result: cropped interactive rendering, TQEC/sinter simulation (`python -m topols.tools.<name>`) |
 | `export/visualize.py`, `export/visualize_interactive.py` | matplotlib and Plotly renderers with identical colour conventions |
 | `geometry.py` | small vector helpers |
@@ -133,3 +134,26 @@ frontier is lifted to a ceiling and becomes the input ports of the next
 block; a block that fell through to gate-by-gate hands over its final
 frontier the same way. Output ports of all qubits are kept on one last
 layer so that the final seal sees every wire.
+
+## The Rust core
+
+`rust/topols_core` is a port of `routing/`, `embedding/` and `driver.py`
+(the whole layer loop, fallback ladder and seals) that returns the same
+result as the Python implementation for the same input. Three properties
+make that possible and are worth keeping in mind when changing either side:
+
+* **Budgets are counted in work, not seconds.** `-t` is converted to A*
+  expansions (`routing/astar.py`'s `WORK_PER_SECOND`); A* gives up after a
+  fixed number of expansions. Nothing in the search reads the clock, so the
+  trajectory is a deterministic function of the input and the seed.
+* **Iteration order is explicit.** Dictionaries are insertion-ordered maps,
+  intra-layer edges are sorted (`layering.ordered_edges`), and no decision
+  depends on the order of a hash set.
+* **The random numbers are CPython's.** The Rust side reproduces
+  `random.seed`/`shuffle`/`getrandbits` (Mersenne Twister) exactly, and
+  draws them at the same points.
+
+The Python front end (`pipeline.prepare_graph`) still runs pyzx; it hands
+the layered diagram, the per-block re-layered graphs of the gate-by-gate
+fallback, the Hadamard table and the port information to
+`topols_core.compile` in one call and receives the finished embedding.
