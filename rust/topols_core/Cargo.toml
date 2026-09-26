@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rustc-hash = "2"
 indexmap = "2"
+im = "15"
 serde_json = "1"
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"], optional = true }
 
@@ -24,3 +25,4 @@ python = ["pyo3"]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+debug = 1

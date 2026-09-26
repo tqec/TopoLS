@@ -2,7 +2,7 @@
 //! corner, vertical segments, ceiling lifts and T-gate exits.
 
 use crate::geometry::{Cell, Floors};
-use crate::routing::astar::{shortest_path, Occ};
+use crate::routing::astar::{shortest_path, Blocked, Occ, OccView};
 use crate::routing::color::Axis;
 
 /// Raise everything after the first horizontal corner by one z; None if the
@@ -39,14 +39,15 @@ pub fn vertical_z_path(pos1: Cell, pos2: Cell) -> Vec<Cell> {
 
 /// Route from `start` to the ceiling cell `target` without rising above
 /// `ceiling_z`; None if `target` is occupied or unreachable.
-pub fn route_to_ceiling(start: Cell, occ: &Occ, target: Cell, z_floor: f64, ceiling_z: f64, floors: Floors) -> Option<Vec<Cell>> {
-    if occ.contains(&target) {
+pub fn route_to_ceiling(start: Cell, occ: &Occ, extra: &[Cell], target: Cell, z_floor: f64, ceiling_z: f64, floors: Floors) -> Option<Vec<Cell>> {
+    // Python: occ_tmp = occ | extra; if target in occ_tmp: None; route on occ_tmp - {start, target}
+    let full = OccView { base: occ, removed: &[], extra };
+    if full.contains(&target) {
         return None;
     }
-    let mut occ_tmp = occ.clone();
-    occ_tmp.remove(&start);
-    occ_tmp.remove(&target);
-    shortest_path(start, target, &occ_tmp, z_floor, floors, &[], Some(ceiling_z), None)
+    let removed = [start, target];
+    let view = OccView { base: occ, removed: &removed, extra };
+    shortest_path(start, target, &view, z_floor, floors, &[], Some(ceiling_z), None)
 }
 
 /// Result of `route_single_T_to_boundary`.

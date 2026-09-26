@@ -153,7 +153,7 @@ pub fn ceiling(state: &mut EmbeddingState, ceiling_track: &mut NodeMap<CeilingEn
     }
 
     for e in ceiling_track.values() {
-        state.paths.push(e.path.clone());
+        state.paths.push_back(e.path.clone());
         occ.extend(e.path.iter().copied());
     }
     state.occupied = occ;
@@ -215,7 +215,7 @@ pub fn seal_brute_frontier(state: &mut EmbeddingState) {
             }
         }
         if !extended {
-            paths.push(seg.clone());
+            paths.push_back(seg.clone());
         }
         occ.extend(seg.iter().copied());
     }

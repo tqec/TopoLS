@@ -16,7 +16,7 @@ use crate::embedding::hadamard::HTable;
 use crate::embedding::mcts::{mcts, SearchParams};
 use crate::embedding::node::{ordered_edges, NodeId, NodeType};
 use crate::embedding::ports::{auto_ports, ceiling, seal_brute_frontier, PORT_ORI};
-use crate::embedding::state::{CeilingEntry, EmbeddingState, Layer, NodeMap, Path, TTrack, Track};
+use crate::embedding::state::{paths_max_z, CeilingEntry, EmbeddingState, Layer, NodeMap, Path, Paths, TTrack, Track};
 use crate::geometry::{Cell, Floors};
 use crate::pyrandom::PyRandom;
 use crate::routing::astar::Occ;
@@ -93,7 +93,8 @@ struct Frontier {
     pos: NodeMap<Cell>,
     ori: NodeMap<Axis>,
     typ: NodeMap<NodeType>,
-    paths: Vec<Path>,
+    paths: Paths,
+    paths_max_z: i32,
     occupied: Occ,
     z_floor: f64,
     idle_h_track: NodeMap<Track>,
@@ -104,7 +105,7 @@ struct Frontier {
 impl Frontier {
     fn from_state(s: &EmbeddingState) -> Frontier {
         Frontier {
-            pos: s.pos.clone(), ori: s.ori.clone(), typ: s.typ.clone(), paths: s.paths.clone(), occupied: s.occupied.clone(),
+            pos: s.pos.clone(), ori: s.ori.clone(), typ: s.typ.clone(), paths: s.paths.clone(), paths_max_z: paths_max_z(s.paths.iter()), occupied: s.occupied.clone(),
             z_floor: s.z_floor, idle_h_track: s.idle_h_track.clone(), idle_place: s.idle_place.clone(), t_track: s.t_track.clone(),
         }
     }
@@ -122,7 +123,8 @@ impl Frontier {
             ori: self.ori.iter().filter(|(k, _)| keep.contains(k)).map(|(k, v)| (*k, *v)).collect(),
             typ: self.typ.iter().filter(|(k, _)| keep.contains(k)).map(|(k, v)| (*k, *v)).collect(),
             pos,
-            paths: vec![],
+            paths: Paths::new(),
+            paths_max_z: i32::MIN,
             occupied,
             z_floor,
             idle_h_track: self.idle_h_track.clone(),
@@ -132,7 +134,7 @@ impl Frontier {
     }
     fn as_state(&self, floors: Floors, ht: &Arc<HTable>) -> EmbeddingState {
         EmbeddingState::new(
-            self.pos.clone(), self.ori.clone(), self.typ.clone(), self.paths.clone(), self.occupied.clone(), self.z_floor, floors,
+            self.pos.clone(), self.ori.clone(), self.typ.clone(), self.paths.clone(), self.paths_max_z, self.occupied.clone(), self.z_floor, floors,
             self.idle_h_track.clone(), self.idle_place.clone(), self.t_track.clone(), Arc::new(Layer::default()), Arc::new(NodeMap::new()),
             Arc::new(vec![]), 1.0, ht.clone(), 0,
         )
@@ -221,7 +223,7 @@ fn search_layer(
                 order.extend(others);
             }
             let mut root = Some(EmbeddingState::new(
-                front.pos.clone(), front.ori.clone(), front.typ.clone(), front.paths.clone(), front.occupied.clone(), front.z_floor, cfg.floors,
+                front.pos.clone(), front.ori.clone(), front.typ.clone(), front.paths.clone(), front.paths_max_z, front.occupied.clone(), front.z_floor, cfg.floors,
                 front.idle_h_track.clone(), front.idle_place.clone(), front.t_track.clone(), layer.clone(), input_connect_seed, Arc::new(order),
                 z_length, cfg.ht.clone(), 0,
             ));
@@ -265,7 +267,7 @@ fn commit_layer(state: &mut EmbeddingState, length: usize) -> Option<NodeMap<Cei
     let r = state.reward(length)?;
     state.t_track = r.t_track;
     for tr in state.t_track.values() {
-        state.paths.push(tr.path.clone());
+        state.paths.push_back(tr.path.clone());
     }
     state.occupied = r.occupied;
     Some(r.ceiling_track)
@@ -365,7 +367,8 @@ pub fn operation(input: &CompileInput) -> CompileOutput {
         pos: ports.iter().map(|(i, c)| (NodeId::int(*i as u32), *c)).collect(),
         ori: ports.keys().map(|i| (NodeId::int(*i as u32), PORT_ORI)).collect(),
         typ: ports.keys().map(|i| (NodeId::int(*i as u32), 0)).collect(),
-        paths: vec![],
+        paths: Paths::new(),
+        paths_max_z: i32::MIN,
         occupied: ports.values().copied().collect(),
         z_floor: p.z_floor,
         idle_h_track: NodeMap::new(),
@@ -612,8 +615,9 @@ pub fn operation(input: &CompileInput) -> CompileOutput {
                                 let pb = pre_brute_state.as_ref().unwrap();
                                 (pb.clone(), Frontier::from_state(pb).with_floor(z_floor))
                             };
+                            let bf_paths: Vec<Path> = bf.paths.iter().cloned().collect();
                             let out = basic_embedding(&BruteInput {
-                                pos: &bf.pos, ori: &bf.ori, typ: &bf.typ, paths: &bf.paths, occupied: &bf.occupied, z_floor, floors,
+                                pos: &bf.pos, ori: &bf.ori, typ: &bf.typ, paths: &bf_paths, occupied: &bf.occupied, z_floor, floors,
                                 idle_h_track: &bf.idle_h_track, t_track: &bf.t_track, node_type: &flayer.node_type, input_connect: &fnic,
                                 inter_connect: &flayer.inter_connect, htable: &ht,
                             });
@@ -621,7 +625,7 @@ pub fn operation(input: &CompileInput) -> CompileOutput {
                             bs.pos = out.pos;
                             bs.ori = out.ori;
                             bs.typ = out.typ;
-                            bs.paths = out.paths;
+                            bs.paths = out.paths.into_iter().collect();
                             bs.occupied = out.occupied;
                             bs.idle_h_track = out.idle_h_track;
                             bs.idle_place = out.idle_place;

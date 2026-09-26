@@ -5,24 +5,30 @@
 //! Conventions follow the Python implementation exactly: dicts are
 //! insertion-ordered maps, the intra-layer edges are iterated in
 //! `ordered_edges` order, and every routing decision is made in the same
-//! order with the same tie-breaks.
+//! order with the same tie-breaks. Two representation choices differ from
+//! Python without changing any result: temporary occupancies are `OccView`s
+//! over the shared set instead of copies, and the routed paths are a
+//! persistent vector (O(1) clone) with the highest path z carried along.
 
 use std::sync::Arc;
 
+use im::Vector;
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
 
 use crate::embedding::hadamard::HTable;
 use crate::embedding::node::{is_chain, is_cube, trace_type, NodeId, NodeType};
 use crate::embedding::ports::auto_ports;
-use crate::geometry::{Cell, Floors};
+use crate::geometry::{interior, Cell, Floors};
 use crate::pyrandom::PyRandom;
-use crate::routing::astar::{add_work, shortest_path, Occ, NEXT_STATE_COST};
+use crate::routing::astar::{add_work, shortest_path, Blocked, Occ, OccView, NEXT_STATE_COST};
 use crate::routing::boundary::{route_single_t_to_boundary, route_to_ceiling};
 use crate::routing::color::{color_switch, edge_tracer, ori_map, Axis};
 
 pub type Path = Vec<Cell>;
 pub type NodeMap<V> = IndexMap<NodeId, V>;
+/// Routed paths of a state; persistent so that a successor shares storage.
+pub type Paths = Vector<Path>;
 
 /// `idle_h_track[node] = [origin, path, h]`: for the idle at the end of a
 /// chain, the real node the chain started from and the path from the chain
@@ -73,7 +79,9 @@ pub struct EmbeddingState {
     pub pos: NodeMap<Cell>,
     pub ori: NodeMap<Axis>,
     pub typ: NodeMap<NodeType>,
-    pub paths: Vec<Path>,
+    pub paths: Paths,
+    /// Highest z of any cell in `paths` (i32::MIN when there are none).
+    pub paths_max_z: i32,
     pub occupied: Occ,
     pub z_floor: f64,
     pub floors: Floors,
@@ -90,16 +98,14 @@ pub struct EmbeddingState {
     pub vol: f64,
 }
 
+/// Highest z over the cells of `paths`.
+pub fn paths_max_z<'a>(paths: impl IntoIterator<Item = &'a Path>) -> i32 {
+    paths.into_iter().flat_map(|p| p.iter().map(|c| c.z)).max().unwrap_or(i32::MIN)
+}
+
 /// `geometry.bounding_box`
-pub fn bounding_box(pos: &NodeMap<Cell>, paths: &[Path], floors: &Floors, min_z: f64, z_length: f64) -> f64 {
-    let mut max_z = pos.values().map(|c| c.z).max().unwrap();
-    for p in paths {
-        for c in p {
-            if c.z > max_z {
-                max_z = c.z;
-            }
-        }
-    }
+pub fn bounding_box(pos: &NodeMap<Cell>, paths_max_z: i32, floors: &Floors, min_z: f64, z_length: f64) -> f64 {
+    let max_z = pos.values().map(|c| c.z).max().unwrap().max(paths_max_z);
     (floors.x_max.unwrap() - floors.x_min.unwrap() + 1.0)
         * (floors.y_max.unwrap() - floors.y_min.unwrap() + 1.0)
         * (max_z as f64 - min_z + z_length)
@@ -111,9 +117,9 @@ fn idle_cells_masked(idle_place: &NodeMap<Cell>, mask: Option<NodeId>) -> Vec<Ce
 }
 
 #[inline]
-fn add_offsets(occ: &mut Occ, at: Cell, axis: Axis) {
+fn push_offsets(extra: &mut Vec<Cell>, at: Cell, axis: Axis) {
     for d in axis.offsets() {
-        occ.insert(at.add(d));
+        extra.push(at.add(d));
     }
 }
 
@@ -133,13 +139,49 @@ fn trace_from_origin(ori: &NodeMap<Axis>, typ: &NodeMap<NodeType>, origin: NodeI
     edge_tracer(&reversed(tol), ori[&origin], trace_type(typ[&origin]))
 }
 
+/// Working copies of a state's mutable parts while a placement is routed.
+struct Work {
+    pos: NodeMap<Cell>,
+    ori: NodeMap<Axis>,
+    typ: NodeMap<NodeType>,
+    paths: Paths,
+    paths_max_z: i32,
+    occ: Occ,
+    track: NodeMap<Track>,
+    t_track: NodeMap<TTrack>,
+    idle_place: NodeMap<Cell>,
+}
+
+impl Work {
+    fn push_path(&mut self, path: Path) {
+        for c in &path {
+            if c.z > self.paths_max_z {
+                self.paths_max_z = c.z;
+            }
+        }
+        self.paths.push_back(path);
+    }
+}
+
+/// The temporary occupancy of a routing helper: `occ - removed + extra`.
+struct Temp {
+    removed: Vec<Cell>,
+    extra: Vec<Cell>,
+}
+impl Temp {
+    fn view<'a>(&'a self, base: &'a Occ) -> OccView<'a> {
+        OccView { base, removed: &self.removed, extra: &self.extra }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 impl EmbeddingState {
     pub fn new(
         pos: NodeMap<Cell>,
         ori: NodeMap<Axis>,
         typ: NodeMap<NodeType>,
-        paths: Vec<Path>,
+        paths: Paths,
+        paths_max_z: i32,
         occupied: Occ,
         z_floor: f64,
         floors: Floors,
@@ -153,8 +195,8 @@ impl EmbeddingState {
         htable: Arc<HTable>,
         order_idx: usize,
     ) -> EmbeddingState {
-        let vol = if pos.len() < 2 { 0.0 } else { bounding_box(&pos, &paths, &floors, z_floor, z_length) };
-        EmbeddingState { pos, ori, typ, paths, occupied, z_floor, floors, idle_h_track, idle_place, t_track, layer, input_connect, order, z_length, htable, order_idx, vol }
+        let vol = if pos.len() < 2 { 0.0 } else { bounding_box(&pos, paths_max_z, &floors, z_floor, z_length) };
+        EmbeddingState { pos, ori, typ, paths, paths_max_z, occupied, z_floor, floors, idle_h_track, idle_place, t_track, layer, input_connect, order, z_length, htable, order_idx, vol }
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -216,236 +258,223 @@ impl EmbeddingState {
     }
 
     // ------------------------------------------------------------------
-    // routing helpers (module functions in Python; methods here for brevity)
+    // routing helpers (module functions in Python)
     // ------------------------------------------------------------------
 
-    /// `_route_input_ports`. Returns `(path, occ_tmp, input)` of the last port
-    /// routed, or None.
-    fn route_input_ports(
-        &self,
-        pos: &NodeMap<Cell>,
-        occ: &mut Occ,
-        paths: &mut Vec<Path>,
-        ori: &mut NodeMap<Axis>,
-        typ: &NodeMap<NodeType>,
-        track: &mut NodeMap<Track>,
-        idle_place: &mut NodeMap<Cell>,
-        node: NodeId,
-        coord: Cell,
-        input_ports: &[NodeId],
-        target_type: u8,
-    ) -> Option<(Path, Occ, NodeId)> {
+    /// `_route_input_ports`. Returns the temporary occupancy of the last port
+    /// routed (the S branch extends it) and that port, or None.
+    fn route_input_ports(&self, w: &mut Work, node: NodeId, coord: Cell, input_ports: &[NodeId], target_type: u8) -> Option<(Path, Temp, NodeId)> {
         let ht = &*self.htable;
         let mut ori_flag = false;
-        let mut last: Option<(Path, Occ, NodeId)> = None;
+        let mut last: Option<(Path, Temp, NodeId)> = None;
         for &input in input_ports {
-            let mut occ_tmp = occ.clone();
-            assert!(occ_tmp.remove(&pos[&input]), "input port not in occupancy");
-            assert!(occ_tmp.remove(&coord), "placement not in occupancy");
-            if is_cube(typ[&input]) {
-                add_offsets(&mut occ_tmp, pos[&input], ori[&input]);
-                if occ_tmp.contains(&coord) {
+            // occ_tmp = occ - {pos[input], coord} (+ offsets around a cube port)
+            debug_assert!(w.occ.contains(&w.pos[&input]) && w.occ.contains(&coord));
+            let mut tmp = Temp { removed: vec![w.pos[&input], coord], extra: Vec::new() };
+            if is_cube(w.typ[&input]) {
+                push_offsets(&mut tmp.extra, w.pos[&input], w.ori[&input]);
+                if tmp.view(&w.occ).contains(&coord) {
                     return None;
                 }
             }
-            let idle_cells = idle_cells_masked(idle_place, Some(input));
+            let idle_cells = idle_cells_masked(&w.idle_place, Some(input));
             let mut path;
             if !ori_flag {
-                path = shortest_path(coord, pos[&input], &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-                let ti = typ[&input];
+                path = shortest_path(coord, w.pos[&input], &tmp.view(&w.occ), self.z_floor, self.floors, &idle_cells, None, None)?;
+                let ti = w.typ[&input];
                 if ti == 0 || ti == 1 {
-                    let (ct, ld) = edge_tracer(&reversed(&path), ori[&input], ti as u8);
+                    let (ct, ld) = edge_tracer(&reversed(&path), w.ori[&input], ti as u8);
                     let ct = hadamard_flip(ht, ct, node, input);
-                    ori.insert(node, ori_map(ld, ct, target_type));
+                    w.ori.insert(node, ori_map(ld, ct, target_type));
                 } else if is_chain(ti) {
-                    let tr = &track[&input];
+                    let tr = &w.track[&input];
                     let mut tol = path.clone();
                     tol.extend_from_slice(&tr.path[1..]);
-                    let (mut ct, ld) = trace_from_origin(ori, typ, tr.origin, &tol);
+                    let (mut ct, ld) = trace_from_origin(&w.ori, &w.typ, tr.origin, &tol);
                     if ht.needs_flip(tr.origin, node) {
                         ct = 1 - ct;
                     }
-                    ori.insert(node, ori_map(ld, ct, target_type));
-                    track.shift_remove(&input);
+                    w.ori.insert(node, ori_map(ld, ct, target_type));
+                    w.track.shift_remove(&input);
                 } else {
-                    let (ct, ld) = edge_tracer(&reversed(&path), ori[&input], 0);
+                    let (ct, ld) = edge_tracer(&reversed(&path), w.ori[&input], 0);
                     let ct = hadamard_flip(ht, ct, node, input);
-                    ori.insert(node, ori_map(ld, ct, target_type));
+                    w.ori.insert(node, ori_map(ld, ct, target_type));
                 }
                 ori_flag = true;
             } else {
-                add_offsets(&mut occ_tmp, pos[&node], ori[&node]);
-                path = shortest_path(coord, pos[&input], &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-                let ti = typ[&input];
+                push_offsets(&mut tmp.extra, w.pos[&node], w.ori[&node]);
+                path = shortest_path(coord, w.pos[&input], &tmp.view(&w.occ), self.z_floor, self.floors, &idle_cells, None, None)?;
+                let ti = w.typ[&input];
                 let (ct, ld) = if ti == 0 || ti == 1 {
-                    let (ct, ld) = edge_tracer(&reversed(&path), ori[&input], ti as u8);
+                    let (ct, ld) = edge_tracer(&reversed(&path), w.ori[&input], ti as u8);
                     (hadamard_flip(ht, ct, node, input), ld)
                 } else if is_chain(ti) {
-                    let tr = &track[&input];
+                    let tr = &w.track[&input];
                     let mut tol = path.clone();
                     tol.extend_from_slice(&tr.path[1..]);
-                    let (mut ct, ld) = trace_from_origin(ori, typ, tr.origin, &tol);
+                    let (mut ct, ld) = trace_from_origin(&w.ori, &w.typ, tr.origin, &tol);
                     if ht.needs_flip(tr.origin, node) {
                         ct = 1 - ct;
                     }
-                    track.shift_remove(&input);
+                    w.track.shift_remove(&input);
                     (ct, ld)
                 } else {
-                    let (ct, ld) = edge_tracer(&reversed(&path), ori[&input], 0);
+                    let (ct, ld) = edge_tracer(&reversed(&path), w.ori[&input], 0);
                     (hadamard_flip(ht, ct, node, input), ld)
                 };
-                if ori[&node] != ori_map(ld, ct, target_type) {
-                    path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
+                if w.ori[&node] != ori_map(ld, ct, target_type) {
+                    path = color_switch(&path, &tmp.view(&w.occ), self.z_floor, self.floors)?;
                 }
             }
-            for q in crate::geometry::interior(&path) {
-                occ.insert(*q);
+            w.occ.extend(interior(&path).iter().copied());
+            w.push_path(path.clone());
+            if w.typ[&input] == 2 {
+                w.idle_place.shift_remove(&input).expect("idle input not in idle_place");
             }
-            paths.push(path.clone());
-            if typ[&input] == 2 {
-                idle_place.shift_remove(&input).expect("idle input not in idle_place");
-            }
-            last = Some((path, occ_tmp, input));
+            last = Some((path, tmp, input));
         }
         last
     }
 
     /// `_route_solid_src_to_solid_dst`
-    fn route_solid_src_to_solid_dst(
-        &self, pos: &NodeMap<Cell>, occ: &mut Occ, ori: &NodeMap<Axis>, src: NodeId, dst: NodeId, dst_typ: NodeType,
-        typ_input: u8, idle_place: &NodeMap<Cell>, mask: NodeId,
-    ) -> Option<Path> {
-        let (sc, dc) = (pos[&src], pos[&dst]);
-        let mut occ_tmp = occ.clone();
-        assert!(occ_tmp.remove(&sc));
-        assert!(occ_tmp.remove(&dc));
-        add_offsets(&mut occ_tmp, sc, ori[&src]);
-        add_offsets(&mut occ_tmp, dc, ori[&dst]);
-        if occ_tmp.contains(&sc) || occ_tmp.contains(&dc) {
+    fn route_solid_src_to_solid_dst(&self, w: &mut Work, src: NodeId, dst: NodeId, dst_typ: NodeType, typ_input: u8, mask: NodeId) -> Option<Path> {
+        let (sc, dc) = (w.pos[&src], w.pos[&dst]);
+        let mut tmp = Temp { removed: vec![sc, dc], extra: Vec::new() };
+        push_offsets(&mut tmp.extra, sc, w.ori[&src]);
+        push_offsets(&mut tmp.extra, dc, w.ori[&dst]);
+        let view = tmp.view(&w.occ);
+        if view.contains(&sc) || view.contains(&dc) {
             return None;
         }
-        let idle_cells = idle_cells_masked(idle_place, Some(mask));
-        let mut path = shortest_path(dc, sc, &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-        let (ct, ld) = edge_tracer(&reversed(&path), ori[&src], typ_input);
+        let idle_cells = idle_cells_masked(&w.idle_place, Some(mask));
+        let mut path = shortest_path(dc, sc, &view, self.z_floor, self.floors, &idle_cells, None, None)?;
+        let (ct, ld) = edge_tracer(&reversed(&path), w.ori[&src], typ_input);
         let ct = hadamard_flip(&self.htable, ct, src, dst);
-        if ori[&dst] != ori_map(ld, ct, if dst_typ == 1 { 1 } else { 0 }) {
-            path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
+        if w.ori[&dst] != ori_map(ld, ct, if dst_typ == 1 { 1 } else { 0 }) {
+            path = color_switch(&path, &view, self.z_floor, self.floors)?;
         }
-        for q in crate::geometry::interior(&path) {
-            occ.insert(*q);
-        }
+        w.occ.extend(interior(&path).iter().copied());
         Some(path)
     }
 
     /// `_route_chain_src_to_solid_dst`
-    fn route_chain_src_to_solid_dst(
-        &self, pos: &NodeMap<Cell>, occ: &mut Occ, ori: &NodeMap<Axis>, typ: &NodeMap<NodeType>, track: &mut NodeMap<Track>,
-        src: NodeId, dst: NodeId, dst_typ: NodeType, idle_place: &NodeMap<Cell>, mask: NodeId,
-    ) -> Option<Path> {
-        let (sc, dc) = (pos[&src], pos[&dst]);
+    fn route_chain_src_to_solid_dst(&self, w: &mut Work, src: NodeId, dst: NodeId, dst_typ: NodeType, mask: NodeId) -> Option<Path> {
+        let (sc, dc) = (w.pos[&src], w.pos[&dst]);
         let typ_output: u8 = if dst_typ == 1 { 1 } else { 0 };
-        let mut occ_tmp = occ.clone();
-        assert!(occ_tmp.remove(&sc));
-        assert!(occ_tmp.remove(&dc));
-        add_offsets(&mut occ_tmp, dc, ori[&dst]);
-        if occ_tmp.contains(&sc) || occ_tmp.contains(&dc) {
+        let mut tmp = Temp { removed: vec![sc, dc], extra: Vec::new() };
+        push_offsets(&mut tmp.extra, dc, w.ori[&dst]);
+        let view = tmp.view(&w.occ);
+        if view.contains(&sc) || view.contains(&dc) {
             return None;
         }
-        let idle_cells = idle_cells_masked(idle_place, Some(mask));
-        let mut path = shortest_path(dc, sc, &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-        let tr = &track[&src];
+        let idle_cells = idle_cells_masked(&w.idle_place, Some(mask));
+        let mut path = shortest_path(dc, sc, &view, self.z_floor, self.floors, &idle_cells, None, None)?;
+        let tr = &w.track[&src];
         let mut tol = path.clone();
         tol.extend_from_slice(&tr.path[1..]);
-        let (mut ct, ld) = trace_from_origin(ori, typ, tr.origin, &tol);
+        let (mut ct, ld) = trace_from_origin(&w.ori, &w.typ, tr.origin, &tol);
         if self.htable.needs_flip(tr.origin, dst) {
             ct = 1 - ct;
         }
-        if ori[&dst] != ori_map(ld, ct, typ_output) {
-            path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
+        if w.ori[&dst] != ori_map(ld, ct, typ_output) {
+            path = color_switch(&path, &view, self.z_floor, self.floors)?;
         }
-        track.shift_remove(&src);
-        for q in crate::geometry::interior(&path) {
-            occ.insert(*q);
-        }
+        w.track.shift_remove(&src);
+        w.occ.extend(interior(&path).iter().copied());
         Some(path)
     }
 
     /// `_route_solid_src_to_chain_dst`
-    fn route_solid_src_to_chain_dst(
-        &self, pos: &NodeMap<Cell>, occ: &mut Occ, ori: &NodeMap<Axis>, typ: &NodeMap<NodeType>, track: &mut NodeMap<Track>,
-        src: NodeId, dst: NodeId, target_type: u8, idle_place: &NodeMap<Cell>, mask: NodeId,
-    ) -> Option<Path> {
-        let (sc, dc) = (pos[&src], pos[&dst]);
-        let mut occ_tmp = occ.clone();
-        assert!(occ_tmp.remove(&sc));
-        assert!(occ_tmp.remove(&dc));
-        add_offsets(&mut occ_tmp, sc, ori[&src]);
-        if occ_tmp.contains(&sc) || occ_tmp.contains(&dc) {
+    fn route_solid_src_to_chain_dst(&self, w: &mut Work, src: NodeId, dst: NodeId, target_type: u8, mask: NodeId) -> Option<Path> {
+        let (sc, dc) = (w.pos[&src], w.pos[&dst]);
+        let mut tmp = Temp { removed: vec![sc, dc], extra: Vec::new() };
+        push_offsets(&mut tmp.extra, sc, w.ori[&src]);
+        let view = tmp.view(&w.occ);
+        if view.contains(&sc) || view.contains(&dc) {
             return None;
         }
-        let idle_cells = idle_cells_masked(idle_place, Some(mask));
-        let mut path = shortest_path(sc, dc, &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-        let tr = &track[&dst];
+        let idle_cells = idle_cells_masked(&w.idle_place, Some(mask));
+        let mut path = shortest_path(sc, dc, &view, self.z_floor, self.floors, &idle_cells, None, None)?;
+        let tr = &w.track[&dst];
         let mut tol = path.clone();
         tol.extend_from_slice(&tr.path[1..]);
-        let (mut ct, ld) = trace_from_origin(ori, typ, tr.origin, &tol);
+        let (mut ct, ld) = trace_from_origin(&w.ori, &w.typ, tr.origin, &tol);
         if self.htable.needs_flip(src, tr.origin) {
             ct = 1 - ct;
         }
-        if ori[&src] != ori_map(ld, ct, target_type) {
-            path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
+        if w.ori[&src] != ori_map(ld, ct, target_type) {
+            path = color_switch(&path, &view, self.z_floor, self.floors)?;
         }
-        track.shift_remove(&dst);
-        for q in crate::geometry::interior(&path) {
-            occ.insert(*q);
-        }
+        w.track.shift_remove(&dst);
+        w.occ.extend(interior(&path).iter().copied());
         Some(path)
     }
 
     /// `_route_chain_src_to_chain_dst`
-    fn route_chain_src_to_chain_dst(
-        &self, pos: &NodeMap<Cell>, occ: &mut Occ, ori: &NodeMap<Axis>, typ: &NodeMap<NodeType>, track: &mut NodeMap<Track>,
-        src: NodeId, dst: NodeId, idle_place: &NodeMap<Cell>, mask: NodeId,
-    ) -> Option<Path> {
-        let (sc, dc) = (pos[&src], pos[&dst]);
-        let mut occ_tmp = occ.clone();
-        assert!(occ_tmp.remove(&sc));
-        assert!(occ_tmp.remove(&dc));
-        if occ_tmp.contains(&sc) || occ_tmp.contains(&dc) {
+    fn route_chain_src_to_chain_dst(&self, w: &mut Work, src: NodeId, dst: NodeId, mask: NodeId) -> Option<Path> {
+        let (sc, dc) = (w.pos[&src], w.pos[&dst]);
+        let tmp = Temp { removed: vec![sc, dc], extra: Vec::new() };
+        let view = tmp.view(&w.occ);
+        if view.contains(&sc) || view.contains(&dc) {
             return None;
         }
-        let idle_cells = idle_cells_masked(idle_place, Some(mask));
-        let mut path = shortest_path(sc, dc, &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-        let (td, ts) = (&track[&dst], &track[&src]);
+        let idle_cells = idle_cells_masked(&w.idle_place, Some(mask));
+        let mut path = shortest_path(sc, dc, &view, self.z_floor, self.floors, &idle_cells, None, None)?;
+        let (td, ts) = (&w.track[&dst], &w.track[&src]);
         let mut tol: Path = reversed(&ts.path);
         tol.extend_from_slice(&path[1..]);
         tol.extend_from_slice(&td.path[1..]);
-        let (mut ct, ld) = trace_from_origin(ori, typ, td.origin, &tol);
+        let (mut ct, ld) = trace_from_origin(&w.ori, &w.typ, td.origin, &tol);
         if self.htable.needs_flip(ts.origin, td.origin) {
             ct = 1 - ct;
         }
-        if ori[&ts.origin] != ori_map(ld, ct, if typ[&ts.origin] == 1 { 1 } else { 0 }) {
-            path = color_switch(&path, &occ_tmp, self.z_floor, self.floors)?;
+        if w.ori[&ts.origin] != ori_map(ld, ct, if w.typ[&ts.origin] == 1 { 1 } else { 0 }) {
+            path = color_switch(&path, &view, self.z_floor, self.floors)?;
         }
-        track.shift_remove(&src);
-        track.shift_remove(&dst);
-        for q in crate::geometry::interior(&path) {
-            occ.insert(*q);
-        }
+        w.track.shift_remove(&src);
+        w.track.shift_remove(&dst);
+        w.occ.extend(interior(&path).iter().copied());
         Some(path)
     }
 
     /// Intra-layer edges of `node` whose other endpoint is already placed,
     /// in `inter_connect` order: `(dst, dst_typ)`.
-    fn placed_partners(&self, node: NodeId, pos: &NodeMap<Cell>, typ: &NodeMap<NodeType>) -> Vec<(NodeId, NodeType)> {
+    fn placed_partners(&self, node: NodeId, w: &Work) -> Vec<(NodeId, NodeType)> {
         let mut out = Vec::new();
         for &(a, b) in &self.layer.inter_connect {
-            if (a == node && pos.contains_key(&b)) || (b == node && pos.contains_key(&a)) {
+            if (a == node && w.pos.contains_key(&b)) || (b == node && w.pos.contains_key(&a)) {
                 let dst = if a == node { b } else { a };
-                out.push((dst, typ[&dst]));
+                out.push((dst, w.typ[&dst]));
             }
         }
         out
+    }
+
+    /// Route the intra-layer edges of a freshly placed cube (types 0/1/4/5).
+    fn route_partners_from_cube(&self, w: &mut Work, node: NodeId, typ_input: u8, mask: NodeId) -> Option<()> {
+        for (dst, dst_typ) in self.placed_partners(node, w) {
+            let path = if is_cube(dst_typ) {
+                self.route_solid_src_to_solid_dst(w, node, dst, dst_typ, typ_input, mask)?
+            } else {
+                self.route_solid_src_to_chain_dst(w, node, dst, typ_input, mask)?
+            };
+            w.push_path(path);
+        }
+        Some(())
+    }
+
+    /// Route the intra-layer edges of a freshly placed chain end (types 2/3).
+    fn route_partners_from_chain(&self, w: &mut Work, node: NodeId, mask: NodeId) -> Option<()> {
+        for (dst, dst_typ) in self.placed_partners(node, w) {
+            let path = if is_cube(dst_typ) {
+                self.route_chain_src_to_solid_dst(w, node, dst, dst_typ, mask)?
+            } else {
+                self.route_chain_src_to_chain_dst(w, node, dst, mask)?
+            };
+            w.push_path(path);
+        }
+        Some(())
     }
 
     /// `next_state`: place the next node of `order` at `coord`.
@@ -454,209 +483,170 @@ impl EmbeddingState {
         let node = self.order[self.order_idx];
         let mut input = self.input_connect[&node][0];
 
-        let mut pos = self.pos.clone();
-        let mut ori = self.ori.clone();
-        let mut typ = self.typ.clone();
-        let mut paths = self.paths.clone();
-        let mut occ = self.occupied.clone();
-        let mut track = self.idle_h_track.clone();
-        let mut t_track = self.t_track.clone();
-        let mut idle_place = self.idle_place.clone();
+        let mut w = Work {
+            pos: self.pos.clone(),
+            ori: self.ori.clone(),
+            typ: self.typ.clone(),
+            paths: self.paths.clone(),
+            paths_max_z: self.paths_max_z,
+            occ: self.occupied.clone(),
+            track: self.idle_h_track.clone(),
+            t_track: self.t_track.clone(),
+            idle_place: self.idle_place.clone(),
+        };
 
-        if occ.contains(&coord) || (coord.z as f64) < self.z_floor {
+        if w.occ.contains(&coord) || (coord.z as f64) < self.z_floor {
             return None;
         }
         if self.typ[&input] != 2 {
-            for c in idle_place.values() {
+            for c in w.idle_place.values() {
                 if coord.x == c.x && coord.y == c.y && coord.z >= c.z {
                     return None;
                 }
             }
         }
         let nt = self.layer.node_type[&node];
-        pos.insert(node, coord);
-        typ.insert(node, nt);
-        occ.insert(coord);
+        w.pos.insert(node, coord);
+        w.typ.insert(node, nt);
+        w.occ.insert(coord);
 
         match nt {
             0 | 1 => {
-                let (_, _, inp) = self.route_input_ports(&pos, &mut occ, &mut paths, &mut ori, &typ, &mut track, &mut idle_place, node, coord, &self.input_connect[&node], nt as u8)?;
+                let (_, _, inp) = self.route_input_ports(&mut w, node, coord, &self.input_connect[&node], nt as u8)?;
                 input = inp;
-                for (dst, dst_typ) in self.placed_partners(node, &pos, &typ) {
-                    let path = if is_cube(dst_typ) {
-                        self.route_solid_src_to_solid_dst(&pos, &mut occ, &ori, node, dst, dst_typ, typ[&node] as u8, &idle_place, input)?
-                    } else {
-                        self.route_solid_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, typ[&node] as u8, &idle_place, input)?
-                    };
-                    paths.push(path);
-                }
+                self.route_partners_from_cube(&mut w, node, nt as u8, input)?;
             }
             2 => {
-                let top = occ.iter().filter(|&&c| c != coord).map(|c| c.z).max().unwrap();
-                if typ[&input] == 2 && pos[&input].z >= top {
+                let top = w.occ.iter().filter(|&&c| c != coord).map(|c| c.z).max().unwrap();
+                if w.typ[&input] == 2 && w.pos[&input].z >= top {
                     // consecutive idles at the top collapse into one cell
-                    pos.insert(node, pos[&input]);
-                    occ.remove(&coord);
-                    idle_place.insert(node, pos[&input]);
-                    idle_place.shift_remove(&input);
-                    let tr = track[&input].clone();
-                    track.insert(node, tr);
-                    track.shift_remove(&input);
+                    let at = w.pos[&input];
+                    w.pos.insert(node, at);
+                    w.occ.remove(&coord);
+                    w.idle_place.insert(node, at);
+                    w.idle_place.shift_remove(&input);
+                    let tr = w.track[&input].clone();
+                    w.track.insert(node, tr);
+                    w.track.shift_remove(&input);
                 } else {
-                    let mut occ_tmp = occ.clone();
-                    assert!(occ_tmp.remove(&pos[&input]));
-                    assert!(occ_tmp.remove(&coord));
-                    if is_cube(typ[&input]) {
-                        add_offsets(&mut occ_tmp, pos[&input], ori[&input]);
+                    let mut tmp = Temp { removed: vec![w.pos[&input], coord], extra: Vec::new() };
+                    if is_cube(w.typ[&input]) {
+                        push_offsets(&mut tmp.extra, w.pos[&input], w.ori[&input]);
                     }
-                    if occ_tmp.contains(&coord) {
+                    if tmp.view(&w.occ).contains(&coord) {
                         return None;
                     }
-                    let idle_cells = idle_cells_masked(&idle_place, Some(input));
-                    let path = shortest_path(coord, pos[&input], &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-                    for q in crate::geometry::interior(&path) {
-                        occ.insert(*q);
-                    }
-                    paths.push(path.clone());
-                    if is_cube(typ[&input]) {
-                        track.insert(node, Track { origin: input, path: path.clone(), h: 0 });
+                    let idle_cells = idle_cells_masked(&w.idle_place, Some(input));
+                    let path = shortest_path(coord, w.pos[&input], &tmp.view(&w.occ), self.z_floor, self.floors, &idle_cells, None, None)?;
+                    w.occ.extend(interior(&path).iter().copied());
+                    w.push_path(path.clone());
+                    if is_cube(w.typ[&input]) {
+                        w.track.insert(node, Track { origin: input, path, h: 0 });
                     } else {
-                        let tr = &track[&input];
-                        let mut p = path.clone();
+                        let tr = &w.track[&input];
+                        let mut p = path;
                         p.extend_from_slice(&tr.path[1..]);
                         let new = Track { origin: tr.origin, path: p, h: tr.h };
-                        track.insert(node, new);
-                        track.shift_remove(&input);
+                        w.track.insert(node, new);
+                        w.track.shift_remove(&input);
                     }
-                    if typ[&input] != 2 {
-                        for c in occ.iter() {
+                    if w.typ[&input] != 2 {
+                        for c in w.occ.iter() {
                             if c.x == coord.x && c.y == coord.y && c.z > coord.z {
                                 return None;
                             }
                         }
-                        idle_place.insert(node, coord);
+                        w.idle_place.insert(node, coord);
                     } else {
-                        idle_place.insert(node, coord);
-                        idle_place.shift_remove(&input);
+                        w.idle_place.insert(node, coord);
+                        w.idle_place.shift_remove(&input);
                     }
-                    for (dst, dst_typ) in self.placed_partners(node, &pos, &typ) {
-                        let path = if is_cube(dst_typ) {
-                            self.route_chain_src_to_solid_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, dst_typ, &idle_place, input)?
-                        } else {
-                            self.route_chain_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, &idle_place, input)?
-                        };
-                        paths.push(path);
-                    }
+                    self.route_partners_from_chain(&mut w, node, input)?;
                 }
             }
             3 => {
                 let mut ori_flag = false;
                 for &inp in self.input_connect[&node].iter() {
                     input = inp;
-                    if typ[&inp] == 2 {
-                        idle_place.shift_remove(&inp).expect("idle input not in idle_place");
+                    if w.typ[&inp] == 2 {
+                        w.idle_place.shift_remove(&inp).expect("idle input not in idle_place");
                     }
-                    let mut occ_tmp = occ.clone();
-                    assert!(occ_tmp.remove(&pos[&inp]));
-                    assert!(occ_tmp.remove(&coord));
-                    if is_cube(typ[&inp]) {
-                        add_offsets(&mut occ_tmp, pos[&inp], ori[&inp]);
-                        if occ_tmp.contains(&coord) {
+                    let mut tmp = Temp { removed: vec![w.pos[&inp], coord], extra: Vec::new() };
+                    if is_cube(w.typ[&inp]) {
+                        push_offsets(&mut tmp.extra, w.pos[&inp], w.ori[&inp]);
+                        if tmp.view(&w.occ).contains(&coord) {
                             return None;
                         }
                     }
                     if !ori_flag {
-                        let idle_cells = idle_cells_masked(&idle_place, Some(inp));
-                        let path = shortest_path(coord, pos[&inp], &occ_tmp, self.z_floor, self.floors, &idle_cells, None, None)?;
-                        if is_cube(typ[&inp]) {
-                            track.insert(node, Track { origin: inp, path: path.clone(), h: 1 });
+                        let idle_cells = idle_cells_masked(&w.idle_place, Some(inp));
+                        let path = shortest_path(coord, w.pos[&inp], &tmp.view(&w.occ), self.z_floor, self.floors, &idle_cells, None, None)?;
+                        if is_cube(w.typ[&inp]) {
+                            w.track.insert(node, Track { origin: inp, path: path.clone(), h: 1 });
                         } else {
-                            let tr = &track[&inp];
+                            let tr = &w.track[&inp];
                             let mut p = path.clone();
                             p.extend_from_slice(&tr.path[1..]);
                             let new = Track { origin: tr.origin, path: p, h: tr.h + 1 };
-                            track.insert(node, new);
-                            track.shift_remove(&inp);
+                            w.track.insert(node, new);
+                            w.track.shift_remove(&inp);
                         }
-                        for q in crate::geometry::interior(&path) {
-                            occ.insert(*q);
-                        }
-                        paths.push(path);
+                        w.occ.extend(interior(&path).iter().copied());
+                        w.push_path(path);
                         ori_flag = true;
                     } else {
-                        let dst_typ = typ[&inp];
+                        let dst_typ = w.typ[&inp];
                         let path = if is_cube(dst_typ) {
-                            self.route_chain_src_to_solid_dst(&pos, &mut occ, &ori, &typ, &mut track, node, inp, dst_typ, &idle_place, inp)?
+                            self.route_chain_src_to_solid_dst(&mut w, node, inp, dst_typ, inp)?
                         } else {
-                            self.route_chain_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, inp, &idle_place, inp)?
+                            self.route_chain_src_to_chain_dst(&mut w, node, inp, inp)?
                         };
-                        paths.push(path);
+                        w.push_path(path);
                     }
                 }
-                for (dst, dst_typ) in self.placed_partners(node, &pos, &typ) {
-                    let path = if is_cube(dst_typ) {
-                        self.route_chain_src_to_solid_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, dst_typ, &idle_place, input)?
-                    } else {
-                        self.route_chain_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, &idle_place, input)?
-                    };
-                    paths.push(path);
-                }
+                self.route_partners_from_chain(&mut w, node, input)?;
             }
             4 => {
-                let (path, mut occ_tmp, inp) = self.route_input_ports(&pos, &mut occ, &mut paths, &mut ori, &typ, &mut track, &mut idle_place, node, coord, &self.input_connect[&node], 0)?;
+                let (path, mut tmp, inp) = self.route_input_ports(&mut w, node, coord, &self.input_connect[&node], 0)?;
                 input = inp;
-                occ_tmp.insert(pos[&input]);
-                occ_tmp.insert(coord);
-                let ori_vec = match ori[&node] {
+                // occ_tmp.add(pos[input]); occ_tmp.add(coord)
+                tmp.extra.push(w.pos[&input]);
+                tmp.extra.push(coord);
+                let view = tmp.view(&w.occ);
+                let ori_vec = match w.ori[&node] {
                     Axis::I => Cell::new(1, 0, 0),
                     Axis::J => Cell::new(0, 1, 0),
                     Axis::K => Cell::new(0, 0, 1),
                 };
                 let last_vec = path[1].vector_to(path[0]);
-                let mut found = false;
+                let mut found = None;
                 for sign in [1, -1] {
                     let od = ori_vec.cross(last_vec);
                     let od = Cell::new(sign * od.x, sign * od.y, sign * od.z);
                     let p0 = coord.add(od);
                     let p1 = p0.add(last_vec);
-                    if !occ_tmp.contains(&p0) && !occ_tmp.contains(&p1) && !self.floors.outside(p0) && !self.floors.outside(p1) {
-                        paths.push(vec![p1, p0, coord]);
-                        occ.insert(p0);
-                        occ.insert(p1);
-                        found = true;
+                    if !view.contains(&p0) && !view.contains(&p1) && !self.floors.outside(p0) && !self.floors.outside(p1) {
+                        found = Some((p0, p1));
                         break;
                     }
                 }
-                if !found {
-                    return None;
-                }
-                for (dst, dst_typ) in self.placed_partners(node, &pos, &typ) {
-                    let path = if is_cube(dst_typ) {
-                        self.route_solid_src_to_solid_dst(&pos, &mut occ, &ori, node, dst, dst_typ, 0, &idle_place, input)?
-                    } else {
-                        self.route_solid_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, 0, &idle_place, input)?
-                    };
-                    paths.push(path);
-                }
+                let (p0, p1) = found?;
+                w.push_path(vec![p1, p0, coord]);
+                w.occ.insert(p0);
+                w.occ.insert(p1);
+                self.route_partners_from_cube(&mut w, node, 0, input)?;
             }
             5 => {
-                let (_, _, inp) = self.route_input_ports(&pos, &mut occ, &mut paths, &mut ori, &typ, &mut track, &mut idle_place, node, coord, &self.input_connect[&node], 0)?;
+                let (_, _, inp) = self.route_input_ports(&mut w, node, coord, &self.input_connect[&node], 0)?;
                 input = inp;
-                t_track.insert(node, TTrack { exit: coord, path: vec![], ori: Some(ori[&node]) });
-                for (dst, dst_typ) in self.placed_partners(node, &pos, &typ) {
-                    let path = if is_cube(dst_typ) {
-                        self.route_solid_src_to_solid_dst(&pos, &mut occ, &ori, node, dst, dst_typ, 0, &idle_place, input)?
-                    } else {
-                        self.route_solid_src_to_chain_dst(&pos, &mut occ, &ori, &typ, &mut track, node, dst, 0, &idle_place, input)?
-                    };
-                    paths.push(path);
-                }
+                w.t_track.insert(node, TTrack { exit: coord, path: vec![], ori: Some(w.ori[&node]) });
+                self.route_partners_from_cube(&mut w, node, 0, input)?;
             }
             _ => panic!("unknown node type {nt}"),
         }
 
         Some(EmbeddingState::new(
-            pos, ori, typ, paths, occ, self.z_floor, self.floors, track, idle_place, t_track,
+            w.pos, w.ori, w.typ, w.paths, w.paths_max_z, w.occ, self.z_floor, self.floors, w.track, w.idle_place, w.t_track,
             self.layer.clone(), self.input_connect.clone(), self.order.clone(), self.z_length, self.htable.clone(), self.order_idx + 1,
         ))
     }
@@ -739,16 +729,17 @@ impl EmbeddingState {
             let nt = node_type[&node];
             let p = self.pos[&node];
             let target = node_target_pairs[&node];
-            let mut occ_tmp = occ_ceiling.clone();
+            // occ_tmp = occ_ceiling + offsets (cubes) + the other ceiling targets
+            let mut extra: Vec<Cell> = Vec::new();
             if is_cube(nt) {
-                add_offsets(&mut occ_tmp, p, self.ori[&node]);
+                push_offsets(&mut extra, p, self.ori[&node]);
             }
             for (_, tp) in &available_targets {
                 if *tp != target {
-                    occ_tmp.insert(*tp);
+                    extra.push(*tp);
                 }
             }
-            let path = route_to_ceiling(p, &occ_tmp, target, self.z_floor, ceiling_z as f64, ceiling_floors)?;
+            let path = route_to_ceiling(p, &occ_ceiling, &extra, target, self.z_floor, ceiling_z as f64, ceiling_floors)?;
             let entry = if is_cube(nt) {
                 if nt == 4 || nt == 5 {
                     let (ct, ld) = edge_tracer(&path, self.ori[&node], 0);
@@ -771,9 +762,7 @@ impl EmbeddingState {
             };
             ceiling_track.insert(node, entry);
             occ_ceiling.insert(target);
-            for q in crate::geometry::interior(&path) {
-                occ_ceiling.insert(*q);
-            }
+            occ_ceiling.extend(interior(&path).iter().copied());
         }
 
         let mut new_t_track = self.t_track.clone();
@@ -797,7 +786,7 @@ impl EmbeddingState {
             };
             new_t_track.insert(*node, TTrack { exit: new_exit, path: combined, ori: res.ori });
         }
-        Some(RewardResult { reward: -self.vol, t_track: new_t_track, occupied: occ_pre.clone(), ceiling_track })
+        Some(RewardResult { reward: -self.vol, t_track: new_t_track, occupied: occ_pre, ceiling_track })
     }
 }
 

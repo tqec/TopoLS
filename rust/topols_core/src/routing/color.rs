@@ -3,9 +3,8 @@
 //! A cube's colouring is an orientation (the axis whose faces carry the odd
 //! colour) plus a type in {0, 1}; every bend of a pipe may change the type.
 
-use rustc_hash::FxHashSet;
-
 use crate::geometry::{Cell, Floors};
+use crate::routing::astar::Blocked;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis {
@@ -123,13 +122,12 @@ pub fn edge_tracer(path: &[Cell], ori: Axis, face: u8) -> (u8, Axis) {
 
 /// Change the colour a pipe delivers by inserting a two-cell detour next to
 /// one of its corners; returns the new path or None.
-pub fn color_switch(path: &[Cell], occupied: &FxHashSet<Cell>, z_floor: f64, floors: Floors) -> Option<Vec<Cell>> {
-    let mut occ: FxHashSet<Cell> = occupied.clone();
-    occ.extend(path.iter().copied());
+pub fn color_switch<B: Blocked>(path: &[Cell], occupied: &B, z_floor: f64, floors: Floors) -> Option<Vec<Cell>> {
     if path.len() < 5 {
         return None;
     }
-    let legal = |c: Cell| !occ.contains(&c) && (c.z as f64) >= z_floor && floors.inside_all(c);
+    // Python: occ = set(occupied) | set(path)
+    let legal = |c: Cell| !occupied.contains(&c) && !path.contains(&c) && (c.z as f64) >= z_floor && floors.inside_all(c);
     for i in 2..path.len() - 2 {
         let (a, b, c) = (path[i - 1], path[i], path[i + 1]);
         let v_in = a.vector_to(b);
