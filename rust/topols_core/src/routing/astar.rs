@@ -54,7 +54,7 @@ impl Blocked for OccView<'_> {
         self.extra.contains(c) || (self.base.contains(c) && !self.removed.contains(c))
     }
     fn max_z(&self) -> Option<i32> {
-        let a = self.base.iter().filter(|c| !self.removed.contains(c)).map(|c| c.z).max();
+        let a = self.base.max_z_without(self.removed);
         let b = self.extra.iter().map(|c| c.z).max();
         match (a, b) {
             (Some(x), Some(y)) => Some(x.max(y)),
@@ -211,6 +211,20 @@ impl Grid {
             Some(((x as usize) * self.ny + y as usize) * self.nz + z as usize)
         }
     }
+    /// Slot of `c` in the dense box (None: outside, use the overflow map).
+    #[inline]
+    fn slot(&self, c: Cell) -> Option<usize> {
+        self.index(c)
+    }
+    #[inline]
+    fn get_slot(&self, i: usize) -> Option<Rec> {
+        let r = self.cells[i];
+        if r.gen == self.gen { Some(r) } else { None }
+    }
+    #[inline]
+    fn set_slot(&mut self, i: usize, r: Rec) {
+        self.cells[i] = Rec { gen: self.gen, ..r };
+    }
     #[inline]
     fn get(&self, c: Cell) -> Option<Rec> {
         match self.index(c) {
@@ -290,11 +304,8 @@ fn bounds(c: &Constraints<impl Blocked>) -> Bounds {
 /// A* from `src` to `dst` under `c`. Returns the cells from `src` to `dst`
 /// inclusive, or None when no path is found within the expansion cap.
 pub fn astar_3d<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Option<Vec<Cell>> {
-    let t0 = std::time::Instant::now();
     ASTAR_CALLS.with(|n| n.set(n.get() + 1));
-    let out = astar_3d_inner(src, dst, c);
-    ASTAR_NANOS.with(|n| n.set(n.get() + t0.elapsed().as_nanos() as u64));
-    out
+    astar_3d_inner(src, dst, c)
 }
 
 fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Option<Vec<Cell>> {
@@ -359,11 +370,23 @@ fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Optio
                     continue;
                 }
                 let g2 = e.g + 1;
-                let prev = grid.get(q);
-                if prev.map_or(true, |r| g2 < r.g) {
-                    let prev = prev.unwrap_or(EMPTY);
-                    grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
-                    open.push(Reverse(Entry { f: g2 + q.manhattan(dst) as i32, g: g2, cell: pack(q), parent: e.cell }));
+                match grid.slot(q) {
+                    Some(i) => {
+                        let prev = grid.get_slot(i);
+                        if prev.map_or(true, |r| g2 < r.g) {
+                            let prev = prev.unwrap_or(EMPTY);
+                            grid.set_slot(i, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
+                            open.push(Reverse(Entry { f: g2 + q.manhattan(dst) as i32, g: g2, cell: pack(q), parent: e.cell }));
+                        }
+                    }
+                    None => {
+                        let prev = grid.get(q);
+                        if prev.map_or(true, |r| g2 < r.g) {
+                            let prev = prev.unwrap_or(EMPTY);
+                            grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
+                            open.push(Reverse(Entry { f: g2 + q.manhattan(dst) as i32, g: g2, cell: pack(q), parent: e.cell }));
+                        }
+                    }
                 }
             }
             count += 1;

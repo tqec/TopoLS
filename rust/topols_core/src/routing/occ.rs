@@ -18,6 +18,9 @@ pub struct Occ {
     nz: i32,
     bits: Vec<u64>,
     len: usize,
+    /// highest occupied z and the number of cells at that z (0 when empty)
+    zmax: i32,
+    n_at_zmax: usize,
 }
 
 impl Occ {
@@ -68,7 +71,7 @@ impl Occ {
         if self.nx == 0 {
             xa -= 2; xb += 2; ya -= 2; yb += 2; za -= 1; zb += 8;
         }
-        *self = Occ { x0: xa, y0: ya, z0: za, nx: xb - xa + 1, ny: yb - ya + 1, nz: zb - za + 1, bits: Vec::new(), len: 0 };
+        *self = Occ { x0: xa, y0: ya, z0: za, nx: xb - xa + 1, ny: yb - ya + 1, nz: zb - za + 1, bits: Vec::new(), len: 0, zmax: i32::MIN, n_at_zmax: 0 };
         let n = (self.nx * self.ny * self.nz) as usize;
         self.bits = vec![0u64; (n + 63) / 64];
         for cell in cells {
@@ -91,6 +94,12 @@ impl Occ {
         } else {
             self.bits[w] |= m;
             self.len += 1;
+            if c.z > self.zmax {
+                self.zmax = c.z;
+                self.n_at_zmax = 1;
+            } else if c.z == self.zmax {
+                self.n_at_zmax += 1;
+            }
             true
         }
     }
@@ -103,6 +112,14 @@ impl Occ {
                 if self.bits[w] & m != 0 {
                     self.bits[w] &= !m;
                     self.len -= 1;
+                    if c.z == self.zmax {
+                        self.n_at_zmax -= 1;
+                        if self.n_at_zmax == 0 {
+                            // recompute (rare): the highest layer was emptied
+                            self.zmax = self.iter().map(|c| c.z).max().unwrap_or(i32::MIN);
+                            self.n_at_zmax = if self.zmax == i32::MIN { 0 } else { self.iter().filter(|c| c.z == self.zmax).count() };
+                        }
+                    }
                     true
                 } else {
                     false
@@ -133,8 +150,24 @@ impl Occ {
     }
 
     /// Highest z of any occupied cell.
+    #[inline]
     pub fn max_z(&self) -> Option<i32> {
-        self.iter().map(|c| c.z).max()
+        if self.len == 0 { None } else { Some(self.zmax) }
+    }
+
+    /// Highest z once the cells `removed` (which may or may not be present)
+    /// are taken away.
+    pub fn max_z_without(&self, removed: &[Cell]) -> Option<i32> {
+        if self.len == 0 {
+            return None;
+        }
+        let gone = removed.iter().filter(|c| c.z == self.zmax && self.contains(c)).count();
+        // distinct cells only matter if duplicates are passed; callers pass distinct cells
+        if gone < self.n_at_zmax {
+            Some(self.zmax)
+        } else {
+            self.iter().filter(|c| !removed.contains(c)).map(|c| c.z).max()
+        }
     }
 }
 
@@ -155,7 +188,7 @@ impl FromIterator<Cell> for Occ {
             cells.iter().map(|c| c.y).min(), cells.iter().map(|c| c.y).max(),
             cells.iter().map(|c| c.z).min(), cells.iter().map(|c| c.z).max(),
         ) {
-            o = Occ { x0: xa - 2, y0: ya - 2, z0: za - 1, nx: xb - xa + 5, ny: yb - ya + 5, nz: zb - za + 10, bits: Vec::new(), len: 0 };
+            o = Occ { x0: xa - 2, y0: ya - 2, z0: za - 1, nx: xb - xa + 5, ny: yb - ya + 5, nz: zb - za + 10, bits: Vec::new(), len: 0, zmax: i32::MIN, n_at_zmax: 0 };
             let n = (o.nx * o.ny * o.nz) as usize;
             o.bits = vec![0u64; (n + 63) / 64];
         }
