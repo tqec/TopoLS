@@ -23,6 +23,8 @@ pub trait Blocked {
     fn max_z(&self) -> Option<i32>;
     /// Visit every blocked cell.
     fn for_each(&self, f: &mut dyn FnMut(Cell));
+    /// The underlying bitmap and the (removed, extra) overrides on top of it.
+    fn parts(&self) -> (&Occ, &[Cell], &[Cell]);
 }
 
 impl Blocked for Occ {
@@ -37,6 +39,9 @@ impl Blocked for Occ {
         for c in self.iter() {
             f(c);
         }
+    }
+    fn parts(&self) -> (&Occ, &[Cell], &[Cell]) {
+        (self, &[], &[])
     }
 }
 
@@ -72,6 +77,9 @@ impl Blocked for OccView<'_> {
             f(*c);
         }
     }
+    fn parts(&self) -> (&Occ, &[Cell], &[Cell]) {
+        (self.base, self.removed, self.extra)
+    }
 }
 
 thread_local! {
@@ -89,6 +97,12 @@ pub fn work() -> u64 {
 thread_local! {
     pub static ASTAR_CALLS: StdCell<u64> = const { StdCell::new(0) };
     pub static ASTAR_NANOS: StdCell<u64> = const { StdCell::new(0) };
+    /// time inside next_state (including its A*), and inside reward
+    pub static NEXT_STATE_NANOS: StdCell<u64> = const { StdCell::new(0) };
+    pub static NEXT_STATE_CALLS: StdCell<u64> = const { StdCell::new(0) };
+    pub static REWARD_NANOS: StdCell<u64> = const { StdCell::new(0) };
+    pub static ASTAR_SETUP_NANOS: StdCell<u64> = const { StdCell::new(0) };
+    pub static ASTAR_RECON_NANOS: StdCell<u64> = const { StdCell::new(0) };
 }
 #[inline]
 pub fn add_work(n: u64) {
@@ -162,8 +176,12 @@ struct Rec {
     g: i32,
     back: u64,
     has_back: bool,
+    /// occupancy override for this search: 0 none, 1 blocked, 2 free
+    occ: u8,
+    /// whether `g` has been set (a record may exist only for its override)
+    seen: bool,
 }
-const EMPTY: Rec = Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false };
+const EMPTY: Rec = Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false, occ: 0, seen: false };
 
 /// Visited-cell records on a dense grid over the search box (a generation
 /// stamp makes clearing O(1)); cells outside the box go to a small map.
@@ -219,7 +237,13 @@ impl Grid {
     #[inline]
     fn get_slot(&self, i: usize) -> Option<Rec> {
         let r = self.cells[i];
-        if r.gen == self.gen { Some(r) } else { None }
+        if r.gen == self.gen && r.seen { Some(r) } else { None }
+    }
+    /// The raw record (valid for this search or EMPTY), for the override flag.
+    #[inline]
+    fn raw_slot(&self, i: usize) -> Rec {
+        let r = self.cells[i];
+        if r.gen == self.gen { r } else { EMPTY }
     }
     #[inline]
     fn set_slot(&mut self, i: usize, r: Rec) {
@@ -230,9 +254,33 @@ impl Grid {
         match self.index(c) {
             Some(i) => {
                 let r = self.cells[i];
-                if r.gen == self.gen { Some(r) } else { None }
+                if r.gen == self.gen && r.seen { Some(r) } else { None }
             }
-            None => self.overflow.get(&pack(c)).copied(),
+            None => self.overflow.get(&pack(c)).copied().filter(|r| r.seen),
+        }
+    }
+    #[inline]
+    fn get_override(&self, c: Cell) -> u8 {
+        match self.index(c) {
+            Some(i) => self.raw_slot(i).occ,
+            None => self.overflow.get(&pack(c)).map_or(0, |r| r.occ),
+        }
+    }
+    /// Record an occupancy override (removed -> free, extra -> blocked;
+    /// extra wins, like Python's remove-then-add).
+    fn set_override(&mut self, c: Cell, occ: u8) {
+        match self.index(c) {
+            Some(i) => {
+                let mut r = self.raw_slot(i);
+                r.occ = occ;
+                r.gen = self.gen;
+                self.cells[i] = r;
+            }
+            None => {
+                let e = self.overflow.entry(pack(c)).or_insert(EMPTY);
+                e.occ = occ;
+                e.gen = self.gen;
+            }
         }
     }
     #[inline]
@@ -305,10 +353,14 @@ fn bounds(c: &Constraints<impl Blocked>) -> Bounds {
 /// inclusive, or None when no path is found within the expansion cap.
 pub fn astar_3d<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Option<Vec<Cell>> {
     ASTAR_CALLS.with(|n| n.set(n.get() + 1));
-    astar_3d_inner(src, dst, c)
+    let t0 = std::time::Instant::now();
+    let out = astar_3d_inner(src, dst, c);
+    ASTAR_NANOS.with(|n| n.set(n.get() + t0.elapsed().as_nanos() as u64));
+    out
 }
 
 fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Option<Vec<Cell>> {
+    let t_setup = std::time::Instant::now();
     let b = bounds(c);
     BUFFERS.with(|buf| {
         let mut buf = buf.borrow_mut();
@@ -334,6 +386,15 @@ fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Optio
                 idle_min_z[i] = idle_min_z[i].min(ic.z);
             }
         }
+        // occupancy overrides of the view (removed cells free, extra cells blocked)
+        let (base, removed, extra) = c.occupied.parts();
+        for r in removed {
+            grid.set_override(*r, 2);
+        }
+        for x in extra {
+            grid.set_override(*x, 1);
+        }
+
         let column_blocked = |q: Cell| -> bool {
             let (x, y) = (q.x - xa, q.y - ya);
             if x >= 0 && y >= 0 && (x as usize) < nx && (y as usize) < ny {
@@ -344,8 +405,9 @@ fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Optio
         };
 
         open.push(Reverse(Entry { f: src.manhattan(dst) as i32, g: 0, cell: pack(src), parent: NO_PARENT }));
-        grid.set(src, Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false });
+        grid.set(src, Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false, occ: grid.get_override(src), seen: true });
         let mut count: u32 = 0;
+        ASTAR_SETUP_NANOS.with(|n| n.set(n.get() + t_setup.elapsed().as_nanos() as u64));
 
         while let Some(Reverse(e)) = open.pop() {
             add_work(1);
@@ -359,31 +421,40 @@ fn astar_3d_inner<B: Blocked>(src: Cell, dst: Cell, c: &Constraints<B>) -> Optio
             rec.has_back = true;
             grid.set(p, rec);
             if p == dst {
-                return Some(reconstruct(grid, dst));
+                let t_r = std::time::Instant::now();
+                let path = reconstruct(grid, dst);
+                ASTAR_RECON_NANOS.with(|n| n.set(n.get() + t_r.elapsed().as_nanos() as u64));
+                return Some(path);
             }
             for d in DIRECTIONS {
                 let q = p.add(d);
                 if q != dst && (q.z < b.z_lo || q.x < b.x_lo || q.x > b.x_hi || q.y < b.y_lo || q.y > b.y_hi) {
                     continue;
                 }
-                if q.z > b.z_hi || c.occupied.contains(&q) || column_blocked(q) {
+                if q.z > b.z_hi || column_blocked(q) {
                     continue;
                 }
                 let g2 = e.g + 1;
                 match grid.slot(q) {
                     Some(i) => {
-                        let prev = grid.get_slot(i);
-                        if prev.map_or(true, |r| g2 < r.g) {
-                            let prev = prev.unwrap_or(EMPTY);
-                            grid.set_slot(i, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
+                        let raw = grid.raw_slot(i);
+                        let blocked = match raw.occ { 1 => true, 2 => false, _ => base.contains(&q) };
+                        if blocked {
+                            continue;
+                        }
+                        if !raw.seen || g2 < raw.g {
+                            grid.set_slot(i, Rec { gen: 0, g: g2, back: raw.back, has_back: raw.has_back, occ: raw.occ, seen: true });
                             open.push(Reverse(Entry { f: g2 + q.manhattan(dst) as i32, g: g2, cell: pack(q), parent: e.cell }));
                         }
                     }
                     None => {
+                        if c.occupied.contains(&q) {
+                            continue;
+                        }
                         let prev = grid.get(q);
                         if prev.map_or(true, |r| g2 < r.g) {
                             let prev = prev.unwrap_or(EMPTY);
-                            grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
+                            grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back, occ: prev.occ, seen: true });
                             open.push(Reverse(Entry { f: g2 + q.manhattan(dst) as i32, g: g2, cell: pack(q), parent: e.cell }));
                         }
                     }
@@ -445,7 +516,7 @@ pub fn shortest_path_base(
         let (ya, yb) = (y_lo.min(t1.y).min(t2.y) - 1, y_hi.max(t1.y).max(t2.y) + 1);
         grid.reset(xa, ya, z_search, (xb - xa + 1) as usize, (yb - ya + 1) as usize, 1);
         open.push(Reverse(Entry { f: t1.manhattan(t2) as i32, g: 0, cell: pack(t1), parent: NO_PARENT }));
-        grid.set(t1, Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false });
+        grid.set(t1, Rec { gen: 0, g: 0, back: NO_PARENT, has_back: false, occ: 0, seen: true });
         let mut count: u32 = 0;
 
         while let Some(Reverse(e)) = open.pop() {
@@ -473,7 +544,7 @@ pub fn shortest_path_base(
                 let prev = grid.get(q);
                 if prev.map_or(true, |r| g2 < r.g) {
                     let prev = prev.unwrap_or(EMPTY);
-                    grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back });
+                    grid.set(q, Rec { gen: 0, g: g2, back: prev.back, has_back: prev.has_back, occ: prev.occ, seen: true });
                     open.push(Reverse(Entry { f: g2 + q.manhattan(t2) as i32, g: g2, cell: pack(q), parent: e.cell }));
                 }
             }

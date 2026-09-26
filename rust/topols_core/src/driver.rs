@@ -19,13 +19,18 @@ use crate::embedding::ports::{auto_ports, ceiling, seal_brute_frontier, PORT_ORI
 use crate::embedding::state::{paths_max_z, CeilingEntry, EmbeddingState, Layer, NodeMap, Path, Paths, TTrack, Track};
 use crate::geometry::{Cell, Floors};
 use crate::pyrandom::PyRandom;
-use crate::routing::astar::{work, Occ, ASTAR_CALLS, ASTAR_NANOS};
+use crate::routing::astar::{work, Occ, ASTAR_CALLS, ASTAR_NANOS, ASTAR_RECON_NANOS, ASTAR_SETUP_NANOS, NEXT_STATE_CALLS, NEXT_STATE_NANOS, REWARD_NANOS};
 
 /// Diagnostics summed over all seed threads of a compile.
 pub static TOTAL_WORK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static TOTAL_ASTAR_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static TOTAL_ASTAR_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static TOTAL_MCTS_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_NS_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_NS_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_REWARD_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_SETUP_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_RECON_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use crate::routing::color::Axis;
 
 /// `layer_info` output for one layer.
@@ -262,6 +267,11 @@ fn search_layer(
                         TOTAL_MCTS_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Relaxed);
                         TOTAL_ASTAR_CALLS.fetch_add(ASTAR_CALLS.with(|n| n.replace(0)), Relaxed);
                         TOTAL_ASTAR_NANOS.fetch_add(ASTAR_NANOS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_NS_NANOS.fetch_add(NEXT_STATE_NANOS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_NS_CALLS.fetch_add(NEXT_STATE_CALLS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_REWARD_NANOS.fetch_add(REWARD_NANOS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_SETUP_NANOS.fetch_add(ASTAR_SETUP_NANOS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_RECON_NANOS.fetch_add(ASTAR_RECON_NANOS.with(|n| n.replace(0)), Relaxed);
                         r
                     })
                 })

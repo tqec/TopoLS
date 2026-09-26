@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::embedding::state::EmbeddingState;
 use crate::pyrandom::PyRandom;
-use crate::routing::astar::{work, WORK_PER_SECOND};
+use crate::routing::astar::{add_work, work, WORK_PER_SECOND};
 
 /// The wall clock is only a safety net (`mcts.SAFETY_FACTOR`).
 pub const SAFETY_FACTOR: f64 = 10.0;
@@ -78,22 +78,36 @@ pub fn rollout(state: Rc<EmbeddingState>, rng: &mut PyRandom, p: &SearchParams) 
         if moves.is_empty() {
             return Rollout::Fail;
         }
+        // Evaluate every candidate placement; remember each one's work so the
+        // chosen successor can be reused below with the same accounting.
+        let evaluated: Vec<(Option<EmbeddingState>, u64)> = moves
+            .iter()
+            .map(|&m| {
+                let w0 = work();
+                let r = cur.next_state(m);
+                (r, work() - w0)
+            })
+            .collect();
         let mut best_move = None;
         let mut best_vol = 1e9f64;
-        for &m in &moves {
-            if let Some(nxt) = cur.next_state(m) {
+        let mut best_state: Option<(EmbeddingState, u64)> = None;
+        for ((res, w), &m) in evaluated.into_iter().zip(moves.iter()) {
+            if let Some(nxt) = res {
                 if nxt.vol < best_vol {
                     best_vol = nxt.vol;
                     best_move = Some(m);
+                    best_state = Some((nxt, w));
                 }
             }
         }
-        let Some(bm) = best_move else { return Rollout::Fail };
-        // Python recomputes the chosen successor (and so does its work count).
-        match cur.next_state(bm) {
-            None => return Rollout::Fail,
-            Some(n) => cur = Rc::new(n),
+        if best_move.is_none() {
+            return Rollout::Fail;
         }
+        // Python recomputes the chosen successor; the result is the same
+        // state, so reuse it and charge the same work again.
+        let (nxt, w) = best_state.unwrap();
+        add_work(w);
+        cur = Rc::new(nxt);
         same = false;
     }
     Rollout::Fail

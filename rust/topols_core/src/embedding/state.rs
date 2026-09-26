@@ -20,7 +20,7 @@ use crate::embedding::node::{is_chain, is_cube, trace_type, NodeId, NodeType};
 use crate::embedding::ports::auto_ports;
 use crate::geometry::{interior, Cell, Floors};
 use crate::pyrandom::PyRandom;
-use crate::routing::astar::{add_work, shortest_path, Blocked, Occ, OccView, NEXT_STATE_COST};
+use crate::routing::astar::{add_work, shortest_path, Blocked, Occ, OccView, NEXT_STATE_CALLS, NEXT_STATE_COST, NEXT_STATE_NANOS, REWARD_NANOS};
 use crate::routing::boundary::{route_single_t_to_boundary, route_to_ceiling};
 use crate::routing::color::{color_switch, edge_tracer, ori_map, Axis};
 
@@ -478,6 +478,14 @@ impl EmbeddingState {
 
     /// `next_state`: place the next node of `order` at `coord`.
     pub fn next_state(&self, coord: Cell) -> Option<EmbeddingState> {
+        let t0 = std::time::Instant::now();
+        NEXT_STATE_CALLS.with(|n| n.set(n.get() + 1));
+        let out = self.next_state_inner(coord);
+        NEXT_STATE_NANOS.with(|n| n.set(n.get() + t0.elapsed().as_nanos() as u64));
+        out
+    }
+
+    fn next_state_inner(&self, coord: Cell) -> Option<EmbeddingState> {
         add_work(NEXT_STATE_COST);
         let node = self.order[self.order_idx];
         let mut input = self.input_connect[&node][0];
@@ -653,6 +661,13 @@ impl EmbeddingState {
     /// `reward`: finish a complete layer (lifts to the ceiling, T exits) and
     /// score it; None if it is not terminal or some route fails.
     pub fn reward(&self, length: usize) -> Option<RewardResult> {
+        let t0 = std::time::Instant::now();
+        let out = self.reward_inner(length);
+        REWARD_NANOS.with(|n| n.set(n.get() + t0.elapsed().as_nanos() as u64));
+        out
+    }
+
+    fn reward_inner(&self, length: usize) -> Option<RewardResult> {
         if !self.is_terminal() {
             return None;
         }
