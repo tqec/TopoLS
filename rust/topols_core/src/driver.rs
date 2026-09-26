@@ -19,7 +19,13 @@ use crate::embedding::ports::{auto_ports, ceiling, seal_brute_frontier, PORT_ORI
 use crate::embedding::state::{paths_max_z, CeilingEntry, EmbeddingState, Layer, NodeMap, Path, Paths, TTrack, Track};
 use crate::geometry::{Cell, Floors};
 use crate::pyrandom::PyRandom;
-use crate::routing::astar::Occ;
+use crate::routing::astar::{work, Occ, ASTAR_CALLS, ASTAR_NANOS};
+
+/// Diagnostics summed over all seed threads of a compile.
+pub static TOTAL_WORK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_ASTAR_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_ASTAR_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL_MCTS_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use crate::routing::color::Axis;
 
 /// `layer_info` output for one layer.
@@ -118,7 +124,7 @@ impl Frontier {
         keep.extend(self.idle_h_track.values().map(|t| t.origin));
         let pos: NodeMap<Cell> = self.pos.iter().filter(|(k, _)| keep.contains(k)).map(|(k, v)| (*k, *v)).collect();
         let mut occupied: Occ = pos.values().copied().collect();
-        occupied.extend(occupied_zmax.iter().copied());
+        occupied.extend(occupied_zmax.iter());
         Frontier {
             ori: self.ori.iter().filter(|(k, _)| keep.contains(k)).map(|(k, v)| (*k, *v)).collect(),
             typ: self.typ.iter().filter(|(k, _)| keep.contains(k)).map(|(k, v)| (*k, *v)).collect(),
@@ -247,7 +253,17 @@ fn search_layer(
                 .into_iter()
                 .map(|(root, mut rng)| {
                     let params = &params;
-                    scope.spawn(move || mcts(Rc::new(root), &mut rng, params).map(|st| Rc::try_unwrap(st).unwrap_or_else(|rc| (*rc).clone())))
+                    scope.spawn(move || {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        let t0 = std::time::Instant::now();
+                        let w0 = work();
+                        let r = mcts(Rc::new(root), &mut rng, params).map(|st| Rc::try_unwrap(st).unwrap_or_else(|rc| (*rc).clone()));
+                        TOTAL_WORK.fetch_add(work() - w0, Relaxed);
+                        TOTAL_MCTS_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Relaxed);
+                        TOTAL_ASTAR_CALLS.fetch_add(ASTAR_CALLS.with(|n| n.replace(0)), Relaxed);
+                        TOTAL_ASTAR_NANOS.fetch_add(ASTAR_NANOS.with(|n| n.replace(0)), Relaxed);
+                        r
+                    })
                 })
                 .collect();
             handles.into_iter().map(|h| h.join().expect("seed search panicked")).collect()
@@ -336,7 +352,7 @@ fn rename_layer(l: &LayerData, block: u16, rename_inputs: bool) -> LayerData {
 
 fn zmax_cells(occ: &Occ) -> (i32, Occ) {
     let m = occ.iter().map(|c| c.z).max().unwrap();
-    (m, occ.iter().filter(|c| c.z == m).copied().collect())
+    (m, occ.iter().filter(|c| c.z == m).collect())
 }
 
 // ---------------------------------------------------------------------------

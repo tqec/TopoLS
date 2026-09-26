@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use im::Vector;
 use indexmap::IndexMap;
-use rustc_hash::FxHashSet;
 
 use crate::embedding::hadamard::HTable;
 use crate::embedding::node::{is_chain, is_cube, trace_type, NodeId, NodeType};
@@ -517,7 +516,7 @@ impl EmbeddingState {
                 self.route_partners_from_cube(&mut w, node, nt as u8, input)?;
             }
             2 => {
-                let top = w.occ.iter().filter(|&&c| c != coord).map(|c| c.z).max().unwrap();
+                let top = w.occ.iter().filter(|&c| c != coord).map(|c| c.z).max().unwrap();
                 if w.typ[&input] == 2 && w.pos[&input].z >= top {
                     // consecutive idles at the top collapse into one cell
                     let at = w.pos[&input];
@@ -792,5 +791,5 @@ impl EmbeddingState {
 
 /// Helper for callers building an occupancy set from cells.
 pub fn occ_from(cells: impl IntoIterator<Item = Cell>) -> Occ {
-    cells.into_iter().collect::<FxHashSet<Cell>>()
+    cells.into_iter().collect()
 }

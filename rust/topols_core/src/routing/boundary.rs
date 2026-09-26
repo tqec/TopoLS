@@ -125,7 +125,7 @@ pub fn route_single_t_to_boundary(
     }
 
     let mut occ_tmp: Occ = occ.clone();
-    occ_tmp.extend(occ_ceiling.iter().copied());
+    occ_tmp.extend(occ_ceiling.iter());
     if let Some(axis) = ori {
         for d in axis.offsets() {
             occ_tmp.insert(exit.add(d));

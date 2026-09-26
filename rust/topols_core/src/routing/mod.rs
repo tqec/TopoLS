@@ -4,5 +4,6 @@
 pub mod astar;
 pub mod boundary;
 pub mod color;
+pub mod occ;
 
 pub use astar::{Occ, WORK};
