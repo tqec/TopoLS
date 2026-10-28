@@ -753,7 +753,25 @@ impl EmbeddingState {
                     extra.push(*tp);
                 }
             }
-            let path = route_to_ceiling(p, &occ_ceiling, &extra, target, self.z_floor, ceiling_z as f64, ceiling_floors)?;
+            let mut path = route_to_ceiling(p, &occ_ceiling, &extra, target, self.z_floor, ceiling_z as f64, ceiling_floors)?;
+            // A branching node's lifted end is a junction and keeps the node's
+            // spider type: detour to swap a colour that forces orientation 'k',
+            // reject the state when no detour fits under the ceiling.
+            if is_cube(nt) && self.layer.output_connect[&node] >= 2 {
+                let own = trace_type(nt);
+                let (ct, ld) = edge_tracer(&path, self.ori[&node], own);
+                if ori_map(ld, ct, own) == Axis::K {
+                    let view = OccView { base: &occ_ceiling, removed: &[], extra: &extra };
+                    path = color_switch(&path, &view, self.z_floor, ceiling_floors)?;
+                    if path.iter().any(|c| c.z > ceiling_z) {
+                        return None;
+                    }
+                    let (ct, ld) = edge_tracer(&path, self.ori[&node], own);
+                    if ori_map(ld, ct, own) == Axis::K {
+                        return None;
+                    }
+                }
+            }
             let entry = if is_cube(nt) {
                 if nt == 4 || nt == 5 {
                     let (ct, ld) = edge_tracer(&path, self.ori[&node], 0);

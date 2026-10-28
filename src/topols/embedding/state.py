@@ -582,6 +582,14 @@ class EmbeddingState:
         is traced. Pending T exits are then routed to the boundary. Nothing
         is committed to the state; `ports.ceiling` applies the result.
 
+        A lifted end that would need orientation 'k' (no vertical leg) takes
+        the opposite spider type instead, which is harmless for a node with
+        one wire to the next layer (the end is a degree-2 identity). A node
+        with two or more such wires keeps its type, because its lifted end
+        becomes a junction: its lift is re-routed with `color_switch` until
+        the end can take a horizontal orientation, and the state is rejected
+        if no detour fits under the ceiling.
+
         Args:
             layer: unused (diagnostics).
             length: qubits per row of the ceiling port grid.
@@ -705,6 +713,22 @@ class EmbeddingState:
                     return None
 
                 path, target = result
+
+                # A branching node's lifted end is a junction and must keep
+                # the node's spider type (Z for S/T, whose phase stays on the
+                # node). If the lift delivers a colour that forces that type
+                # to orientation 'k', add a detour that swaps the colour;
+                # reject the state when none fits under the ceiling.
+                if self.output_connect[node] >= 2:
+                    own_type = 1 if self.node_type[node] == 1 else 0
+                    curr_type, last_dir = edge_tracer(tuple(path), (ori, own_type))
+                    if ori_map[(last_dir, curr_type, own_type)] == 'k':
+                        path = color_switch(tuple(path), occ_tmp, self.z_floor, x_min-edge_dist/2, x_max+edge_dist/2, y_min-edge_dist/2, y_max+edge_dist/2)
+                        if path is None or any(pt[2] > ceiling_z for pt in path):
+                            return None
+                        curr_type, last_dir = edge_tracer(tuple(path), (ori, own_type))
+                        if ori_map[(last_dir, curr_type, own_type)] == 'k':
+                            return None
 
                 # Trace final orientation on the ceiling
                 if self.node_type[node] in (4, 5):
