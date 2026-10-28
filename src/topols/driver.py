@@ -289,7 +289,10 @@ def _seal(hist, brute_last, pre_brute_state, pre_state, pre_ceiling_track, pre_n
     end, from the brute-force frontier (`seal_brute_frontier`) or the last
     searched layer (`ceiling(final=True)`); appends the idle-chain paths,
     records the sealed state and merges the fallback's port entries
-    (`io_extra`) that were actually embedded.
+    (`io_extra`) that were actually embedded. Each qubit keeps one output
+    entry, its topmost embedded one: the sealed ends lie above everything
+    else, while a gate-by-gate block that holds a qubit's last gate marks
+    that earlier node as the qubit's output too.
 
     Returns:
         `(best_state, pos_hist, ori_hist, path_hist, type_hist)`.
@@ -302,6 +305,14 @@ def _seal(hist, brute_last, pre_brute_state, pre_state, pre_ceiling_track, pre_n
     hist.record(best_state)
     if io_extra:
         io_info.update({k: v for k, v in io_extra.items() if k in best_state.embed_node_pos})
+    top = {}
+    for k, v in io_info.items():
+        if v["type"] == "output" and k in hist.pos:
+            q = v["qubit"]
+            if q not in top or hist.pos[k][2] > hist.pos[top[q]][2]:
+                top[q] = k
+    for k in [k for k, v in io_info.items() if v["type"] == "output" and k in hist.pos and top[v["qubit"]] != k]:
+        del io_info[k]
     return best_state, hist.pos, hist.ori, hist.paths, hist.typ
 
 

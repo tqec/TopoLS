@@ -352,6 +352,19 @@ fn seal(
             }
         }
     }
+    // One output entry per qubit, its topmost embedded one (a gate-by-gate
+    // block holding a qubit's last gate marks that earlier node too).
+    let mut top: FxHashMap<i64, (NodeId, i32)> = FxHashMap::default();
+    for (k, e) in io_info.iter() {
+        if e.kind == "output" {
+            if let Some(c) = hist.pos.get(k) {
+                if top.get(&e.qubit).map_or(true, |&(_, z)| c.z > z) {
+                    top.insert(e.qubit, (*k, c.z));
+                }
+            }
+        }
+    }
+    io_info.retain(|(k, e)| e.kind != "output" || !hist.pos.contains_key(k) || top[&e.qubit].0 == *k);
     let (x_length, y_length, z_length, volume) = crate::embedding::ports::calculate_space_time(&hist.pos, &hist.paths, &floors);
     CompileOutput {
         pos: std::mem::take(&mut hist.pos), ori: std::mem::take(&mut hist.ori), typ: std::mem::take(&mut hist.typ), paths: std::mem::take(&mut hist.paths),
