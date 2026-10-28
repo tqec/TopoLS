@@ -1,13 +1,54 @@
-"""ZX-diagram simplification: spider fusion (`zx_optimization`), Hadamard-box
+"""ZX-diagram simplification: phase-gate normalisation of the input circuit
+(`normalize_phase_gates`), spider fusion (`zx_optimization`), Hadamard-box
 handling (`hadamard_box`, `dissolve_hadamard_boxes`), removal of trivial
 spiders and row spreading for dense circuits.
 """
 
 import math
+from fractions import Fraction
 import pyzx as zx
 from pyzx import settings
+from pyzx.circuit.gates import S, T, XPhase, YPhase, ZPhase
 settings.drawing_backend = "matplotlib"
 from collections import defaultdict
+
+
+# ---------------------------------------------------------------------------
+# Phase gates of the input circuit
+# ---------------------------------------------------------------------------
+
+def normalize_phase_gates(circuit):
+    """Rewrite the single-qubit phase gates into the ones TopoLS embeds.
+
+    Pauli gates are applied in software (Pauli frame) and do not appear in
+    the pipe diagram, so a Z rotation by k*pi/4 keeps only k mod 4: nothing,
+    T, S, or S followed by T (`sdg` = Z.S becomes S, `tdg` = Z.S.T becomes S
+    then T, `z` disappears). X and Y (phase pi) are dropped. Any other phase
+    gate -- a Z angle that is not a multiple of pi/4, or an X/Y rotation
+    other than pi -- raises ValueError: decompose it into Clifford+T first.
+
+    Returns:
+        A new `Circuit` with every other gate kept in order.
+    """
+    out = circuit.copy()
+    gates = []
+    for g in circuit.gates:
+        if isinstance(g, ZPhase):
+            k = Fraction(g.phase) * 4
+            if k.denominator != 1:
+                raise ValueError(f"unsupported gate {g}: Z rotations must be multiples of pi/4")
+            k = int(k) % 4
+            if k in (2, 3):
+                gates.append(S(g.target))
+            if k in (1, 3):
+                gates.append(T(g.target))
+        elif isinstance(g, (XPhase, YPhase)):
+            if Fraction(g.phase) % 2 != 1:
+                raise ValueError(f"unsupported gate {g}: only the Pauli X and Y rotations are supported")
+        else:
+            gates.append(g)
+    out.gates = gates
+    return out
 
 # ---------------------------------------------------------------------------
 # Utility functions for ZX operations

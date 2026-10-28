@@ -1,8 +1,8 @@
 """Front end of the compiler: from a QASM file to the layered ZX diagram that
 `topols.driver.operation` embeds.
 
-`prepare_graph` performs every graph-level step in order (parse, Hadamard
-boxing, simplification, block partitioning, ZX optimisation, Hadamard
+`prepare_graph` performs every graph-level step in order (parse and
+phase-gate normalisation, Hadamard boxing, simplification, block partitioning, ZX optimisation, Hadamard
 dissolution, layering, idle insertion, port alignment) and returns them in
 a `PreparedGraph` for `topols.driver.operation`; `docs/prog.py` is a thin
 command-line front end on top of it.
@@ -28,6 +28,7 @@ from topols.zx_transform.simplify import (
     delete_singular_nodes,
     dissolve_hadamard_boxes,
     hadamard_box,
+    normalize_phase_gates,
     spread_rows,
     zx_optimization,
 )
@@ -38,7 +39,8 @@ class PreparedGraph:
     """A circuit turned into a layered ZX diagram, ready for embedding.
 
     Attributes:
-        circuit: the parsed pyzx `Circuit`.
+        circuit: the parsed pyzx `Circuit`, phase gates normalised
+            (`normalize_phase_gates`); every later graph is built from it.
         graph: the simplified, layered pyzx graph. Hadamard boxes have been
             removed except those kept as cubes on output-port wires.
         q_num: number of qubits.
@@ -85,7 +87,8 @@ def prepare_graph(qasm_path, block_size_max=20, zx_opt=1, dir_opt=1, spread_num=
     Returns:
         A `PreparedGraph`.
     """
-    circuit = zx.Circuit.load(qasm_path)
+    # Paulis go to the Pauli frame: sdg -> S, tdg -> S, T; x, y, z vanish.
+    circuit = normalize_phase_gates(zx.Circuit.load(qasm_path))
     q_num = circuit.qubits
     graph = circuit.to_graph()
 

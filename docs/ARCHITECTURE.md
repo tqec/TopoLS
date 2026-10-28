@@ -44,7 +44,7 @@ ZX diagram ──► zx_transform ──► layered ZX diagram ──► embeddi
 | module | role |
 |---|---|
 | `pipeline.py` | `prepare_graph`: QASM file → simplified, layered ZX diagram (`PreparedGraph`), the front end used by `docs/prog.py` |
-| `zx_transform/simplify.py` | ZX simplification: spider fusion (`zx_optimization`), `hadamard_box` / `dissolve_hadamard_boxes`, `delete_singular_nodes` |
+| `zx_transform/simplify.py` | `normalize_phase_gates` (Paulis to the Pauli frame, phase gates to S/T), ZX simplification: spider fusion (`zx_optimization`), `hadamard_box` / `dissolve_hadamard_boxes`, `delete_singular_nodes` |
 | `zx_transform/partition.py` | topology-aware slicing of the circuit into blocks (`find_block`, `circuit_slicing`) |
 | `zx_transform/layering.py` | layer indices (`layer_labeling`), idle insertion, per-layer connectivity (`layer_info`), output-port alignment |
 | `embedding/state.py` | `EmbeddingState`: the immutable search state; `next_state` places one spider and routes its wires; `reward` seals a finished layer |

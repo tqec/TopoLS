@@ -207,6 +207,12 @@ consume directly for simulation and resource evaluation.
 - **Magic states.** All magic-state gates are treated as T gates, since
   they share the same execution pattern in lattice surgery; translate other
   magic gates to T before compiling.
+- **Pauli and phase gates.** Pauli gates (`x`, `y`, `z`) are applied in
+  software (Pauli frame) and do not appear in the pipe diagram. A Z
+  rotation by a multiple of π/4 therefore keeps only its part modulo π:
+  `sdg` compiles as S, `tdg` as S followed by T. Other rotations (angles
+  that are not multiples of π/4, `sx`, …) are rejected; decompose them
+  into Clifford+T first.
 
 ## 📖 Citation
 

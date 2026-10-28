@@ -426,7 +426,11 @@ def idling_nodes_insertion_block_vanilla(graph, layer_labels, block_range, hadam
 
 def node_type_convert(graph, node):
     """Embedding type of a vertex: 0 Z spider, 1 X spider, 2 idle, 3 Hadamard
-    box, 4 S, 5 T; -1 for anything else (boundaries)."""
+    box, 4 S, 5 T; -1 for anything else (boundaries).
+
+    A spider with any other phase cannot be embedded and raises ValueError
+    rather than being dropped; `simplify.normalize_phase_gates` rewrites the
+    input circuit so that none reaches this point."""
     vtype = graph.type(node)
     phase = graph.phase(node)  # phase is stored as a rational multiplier of π
 
@@ -439,7 +443,10 @@ def node_type_convert(graph, node):
             return 4
         elif phase == 1/4:
             return 5
+        raise ValueError(f"vertex {node}: Z spider with phase {phase} (only 0, 1/2 and 1/4 are embedded)")
     elif vtype == zx.VertexType.X:
+        if phase != 0:
+            raise ValueError(f"vertex {node}: X spider with phase {phase} (only 0 is embedded)")
         return 1
     elif vtype == zx.VertexType.H_BOX:
         return 3
