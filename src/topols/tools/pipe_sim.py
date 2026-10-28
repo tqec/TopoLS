@@ -18,7 +18,8 @@ import numpy
 import sinter
 from tqec import BlockGraph
 from tqec.compile.convention import FIXED_BULK_CONVENTION
-from tqec.computation.cube import Port
+from tqec.computation.cube import Cube, Port, ZXCube
+from tqec.computation.pipe import Pipe
 from tqec.simulation.plotting.inset import plot_observable_as_inset
 from tqec.simulation.simulation import start_simulation_using_sinter
 from tqec.utils.noise_model import NoiseModel
@@ -29,23 +30,34 @@ def load_block_graph(bgraph_path):
     """Rebuild a TQEC `BlockGraph` from a `.bgraph` file.
 
     Cubes with port information become TQEC `Port`s labelled
-    `<type>_<qubit>`; every pipe of the export is added once.
+    `<type>_<qubit>`; every pipe of the export is added once. A TQEC port
+    has no kind, so TQEC cannot see a colour change on a pipe that touches
+    one; such a pipe's kind is derived from the port's colouring in the
+    export instead, which keeps a Hadamard right next to an input or output
+    port (e.g. a circuit starting with `h`).
     """
     with open(bgraph_path, "rb") as f:
         data = pickle.load(f)
 
     block_graph = BlockGraph("from_topols")
+    port_kind = {}   # port position -> the port's colouring in the embedding
     for node_data in data["bgraph_metadata"].values():
         position = Position3D(*node_data["position"])
         if position not in block_graph:
             if port_data := node_data["other"]:
                 block_graph.add_cube(position, Port(), f"{port_data['type']}_{port_data['qubit']}")
+                if node_data["tqec"]:
+                    port_kind[position] = ZXCube.from_str(node_data["tqec"])
             else:
                 block_graph.add_cube(position, node_data["tqec"])
     for source, sink in data["edge_metadata"].values():
         src, snk = Position3D(*source), Position3D(*sink)
         if not block_graph.has_pipe_between(src, snk):
-            block_graph.add_pipe(src, snk)
+            kind = None
+            if src in port_kind or snk in port_kind:
+                ends = [Cube(p, port_kind.get(p, block_graph[p].kind)) for p in (src, snk)]
+                kind = Pipe.from_cubes(*ends).kind
+            block_graph.add_pipe(src, snk, kind)
     return block_graph
 
 
